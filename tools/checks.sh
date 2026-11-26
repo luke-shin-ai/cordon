@@ -96,7 +96,13 @@ secrets() {
 run "3 lint and secret scan" secrets
 
 # 4 ------------------------------------------------------------------------
-run "4 tests" make host-test
+tests() {
+    "$PYTHON" tests/test_gate.py &&
+    "$PYTHON" tests/test_run.py &&
+    "$PYTHON" tests/test_note.py &&
+    "$PYTHON" tests/test_codelab.py
+}
+run "4 tests" tests
 
 # 5 ------------------------------------------------------------------------
 style() {

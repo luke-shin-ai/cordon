@@ -175,6 +175,15 @@ make host-test     # gate rules, judging rules, note and verifier, codelab forma
 python3 codelab/render.py --check
 ```
 
+The same tests run without make:
+
+```bash
+python3 tests/test_gate.py
+python3 tests/test_run.py
+python3 tests/test_note.py
+python3 tests/test_codelab.py
+```
+
 ## Codelab
 
 `codelab/markdown/cordon-release-gate/` builds a guarded device node from an
