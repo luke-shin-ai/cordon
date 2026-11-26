@@ -1,0 +1,189 @@
+# Cordon boot capture, QNX Global Hackathon 2026
+# mode: normal
+# host: instance-20261113-084844 / Linux 6.12.116+deb13-cloud-amd64
+# cpu/mem: 2 vCPU, 987716 kB
+# qemu: QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+# cmd: qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic -drive file=normal-disk-qemu,format=raw,if=ide -kernel normal-ifs.bin
+# images: 89415c0b4d7ae073a5c419409ec2ecb5e651d1896ed175b16b461bc20de502f3 normal-ifs.bin, c7ed18b695e6df5a72566b012ab062144c7188bb73f946e6ffa55647d0c50d0a normal-disk-qemu
+# started: 20261126T093124Z
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+
+
+iPXE (https://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+16FC6E00+16F06E00 CA00
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from ROM..
+non UEFI or UEFI+CSM boot
+ACPI table not found (0x4746434d)
+System behaves poorly without PCID support.
+overriding mask for controller 2, vector_base 0
+---> Starting slogger2
+---> Starting PCI Services
+---> Starting fsevmgr
+# ---> Starting devb
+---> Mounting file systems
+Path=0 - Intel 82371SB
+ target=0 lun=0     Direct-Access(0) -          QEMU HARDDISK    Rev: 2.5+
+Path=1 - Intel 82371SB
+ target=0 lun=0            CD-ROM(5) - QEMU     QEMU DVD-ROM     Rev: 2.5+
+---> Mounting file systems
+---> Starting Networking
+if_up: tries exhausted
+ifconfig: interface vtnet0 does not exist
+no valid interfaces found
+---> Starting sshd
+---> Starting misc
+CORDON-G2-START mode=normal
+CORDON-OBS policy push=OK
+CORDON-OBS policy id=policy id:995f85da (immutable)
+CORDON-OBS policy type cordon_t=1
+CORDON-OBS policy type cordon_writer_t=2
+CORDON-OBS policy type cordon_probe_t=3
+CORDON-OBS policy type cordon_view_t=4
+CORDON-OBS policy type cordon_outsider_t=5
+CORDON-OBS supervise start kind=up pid=360468 service=/proc/boot/cordon max_restarts=4 type=cordon_t
+CORDON-OBS supervise spawn kind=spawn seq=1 pid=372757
+CORDON-OBS service=up kind=start seq=1 pid=372757 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+CORDON-OBS service path=/dev/cordon state=present tries=1
+CORDON-OBS pidin-types-begin
+  360468 cordon-supervise   cordon_t        
+  372757 cordon             cordon_t        
+CORDON-OBS pidin-types-end
+CORDON-OBS scenario name=boot-order step=begin
+CORDON-OBS client role=order-probe type=cordon_view_t op=status result=OK status=pid=372757 seq=1 zone=zone-main events=0 policy=0x995f85da last=none
+CORDON-OBS scenario name=boot-order step=end
+CORDON-OBS scenario name=deny-unprivileged-write step=begin
+CORDON-OBS service=deny kind=write pid=405526 type=cordon_probe_t result=DENY check=EPERM
+CORDON-OBS client role=probe type=cordon_probe_t op=write result=ERR errno=13(Permission denied)
+CORDON-OBS client role=outsider type=cordon_outsider_t op=open result=ERR errno=1(Operation not permitted)
+CORDON-OBS client role=deny-after type=cordon_view_t op=status result=OK status=pid=372757 seq=1 zone=zone-main events=0 policy=0x995f85da last=none
+CORDON-OBS scenario name=deny-unprivileged-write step=end
+CORDON-OBS scenario name=allow-privileged-write step=begin
+CORDON-OBS service=accept kind=write pid=442390 type=cordon_writer_t result=ACCEPT bytes=22 record=zone=main state=sealed
+CORDON-OBS client role=writer type=cordon_writer_t op=write result=OK bytes=22
+CORDON-OBS client role=writer-after type=cordon_view_t op=status result=OK status=pid=372757 seq=1 zone=zone-main events=1 policy=0x995f85da last=zone=main state=sealed
+CORDON-OBS scenario name=allow-privileged-write step=end
+CORDON-OBS scenario name=kill-consumer step=begin
+CORDON-OBS view role=view type=cordon_view_t state=up pid=475158 path=/dev/cordon ticks=60
+CORDON-OBS view role=view tick=0 status=pid=372757 seq=1 zone=zone-main events=1 policy=0x995f85da last=zone=main state=sealed
+CORDON-OBS view role=view tick=1 status=pid=372757 seq=1 zone=zone-main events=1 policy=0x995f85da last=zone=main state=sealed
+CORDON-OBS kill target=view pid=475158 result=OK
+CORDON-OBS view pid=475158 state=gone
+CORDON-OBS client role=view-after type=cordon_view_t op=status result=OK status=pid=372757 seq=1 zone=zone-main events=1 policy=0x995f85da last=zone=main state=sealed
+CORDON-OBS scenario name=kill-consumer step=end
+CORDON-OBS scenario name=supervised-restart step=begin
+CORDON-OBS client role=pre-kill type=cordon_view_t op=status result=OK status=pid=372757 seq=1 zone=zone-main events=1 policy=0x995f85da last=zone=main state=sealed
+CORDON-OBS kill target=service pid=372757 result=OK
+CORDON-OBS supervise exit kind=exit seq=1 pid=372757 signal=9 code=-1
+CORDON-OBS supervise respawn kind=respawn next_seq=2
+CORDON-OBS supervise spawn kind=spawn seq=2 pid=577557
+CORDON-OBS service=up kind=start seq=2 pid=577557 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+CORDON-OBS client role=post-kill type=cordon_view_t op=status result=OK status=pid=577557 seq=2 zone=zone-main events=0 policy=0x995f85da last=none
+CORDON-OBS client role=restart-after type=cordon_view_t op=status result=OK status=pid=577557 seq=2 zone=zone-main events=0 policy=0x995f85da last=none
+CORDON-OBS scenario name=supervised-restart step=end
+CORDON-EVENTS-BEGIN
+supervise start kind=up pid=360468 service=/proc/boot/cordon max_restarts=4 type=cordon_t
+supervise spawn kind=spawn seq=1 pid=372757
+service up kind=start seq=1 pid=372757 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+service deny kind=write pid=405526 type=cordon_probe_t result=DENY check=EPERM
+service accept kind=write pid=442390 type=cordon_writer_t result=ACCEPT bytes=22 record=zone=main state=sealed
+supervise exit kind=exit seq=1 pid=372757 signal=9 code=-1
+supervise respawn kind=respawn next_seq=2
+supervise spawn kind=spawn seq=2 pid=577557
+service up kind=start seq=2 pid=577557 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+CORDON-EVENTS-END
+CORDON-SLOG2-BEGIN
+Nov 26 09:31:26.251               pci_server.28676              pci_log*     0      SLOG2_INFO  INFO ,1,-10,0 [28676:1]:  
+Nov 26 09:31:26.252               pci_server.28676              pci_log      0      SLOG2_INFO  INFO ,1,-10,0 [28676:1]: + PCI Server v3.2 init start +
+Nov 26 09:31:26.410               pci_server.28676              pci_log      0      SLOG2_INFO  INFO ,1,-10,0 [28676:1]: + PCI Server v3.2 init complete, OK [(PCI_ERR_OK)] +
+Nov 26 09:31:26.410               pci_server.28676              pci_log      0      SLOG2_INFO  INFO ,1,-10,0 [28676:1]:  
+Nov 26 09:31:26.655                devb_eide.65544                 slog*     0      SLOG2_INFO  (devb-eide) 1.00A (Nov 20 2023 10:08:10)
+Nov 26 09:31:26.670                devb_eide.65544                 slog      0      SLOG2_INFO  (libcam.so) (Nov 20 2023 10:07:55) bver 7020019
+Nov 26 09:31:26.687                devb_eide.65544                 slog      0   SLOG2_WARNING  PCI WARN [65544]: _pci_attach() - deprecated interface. Switch your code to the new PCI server API's in <pci/pci.h>
+Nov 26 09:31:26.688                devb_eide.65544                 slog      0   SLOG2_WARNING  PCI WARN [65544]: _pci_present() - deprecated interface. Switch your code to the new PCI server API's in <pci/pci.h>
+Nov 26 09:31:26.718                devb_eide.65544                 slog      0   SLOG2_WARNING  PCI WARN [65544]: _pci_read_config_bus() - deprecated interface. Switch your code to the new PCI server API's in <pci/pci.h>
+Nov 26 09:31:26.728                devb_eide.65544                 slog      0   SLOG2_WARNING  PCI WARN [65544]: _pci_attach_device() - deprecated interface. Switch your code to the new PCI server API's in <pci/pci.h>
+Nov 26 09:31:26.744                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: Intel 82371SB vid 0x8086, did 0x7010, class 0x10180 rev 0, busno 0, dfunc 9
+Nov 26 09:31:26.744                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: cmd_addr 0x1f0, cntl_addr 0x3f4, irq 0xe, chnl 0, udma -1, mdma 2, sdma 0, pio 4
+Nov 26 09:31:26.745                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: probing dev 0 status 50, error 0
+Nov 26 09:31:26.745                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: probing dev 1 status 0, error 0
+Nov 26 09:31:26.849                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_display_identify: mdl QEMU HARDDISK sn QM00001 fw 2.5+ tid 0, cable 80, max udma 5, cur udma 5, max mdma 2, cur mdma 0, max sdma 2, cur sdma 0, pio 4, mblk 16
+Nov 26 09:31:26.866                devb_eide.65544                 slog      0   SLOG2_WARNING  PCI WARN [65544]: _pci_write_config_bus() - deprecated interface. Switch your code to the new PCI server API's in <pci/pci.h>
+Nov 26 09:31:26.872                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_init_devices: QEMU HARDDISK path 0, tid 0, udma -1, mdma 2, sdma 0, pio 4, mblk 16
+Nov 26 09:31:26.874                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: Intel 82371SB vid 0x8086, did 0x7010, class 0x10180 rev 0, busno 0, dfunc 9
+Nov 26 09:31:26.874                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: cmd_addr 0x170, cntl_addr 0x374, irq 0xf, chnl 1, udma -1, mdma 2, sdma 0, pio 4
+Nov 26 09:31:26.874                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: probing dev 0 status 50, error 0
+Nov 26 09:31:26.874                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify_devices: probing dev 1 status 0, error 0
+Nov 26 09:31:26.975                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_identify: chk 4 cmd ec, tid 0, status 41, astatus 41, error 4
+Nov 26 09:31:27.076                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_display_identify: mdl QEMU DVD-ROM sn QM00003 fw 2.5+ tid 0, cable 40, max udma 5, cur udma 5, max mdma 2, cur mdma 0, max sdma 2, cur sdma 0, pio 4, mblk 0
+Nov 26 09:31:27.081                devb_eide.65544                 slog      0     SLOG2_ERROR  eide_init_devices: QEMU DVD-ROM path 1, tid 0, udma -1, mdma 2, sdma 0, pio 4, mblk 0
+Nov 26 09:31:27.091                devb_eide.65544                 slog    100      SLOG2_INFO  (cam-disk.so) (Nov 20 2023 10:08:01)
+Nov 26 09:31:27.332                devb_eide.65544                 slog      0     SLOG2_ERROR  xpt_peripheral_drivers:  dlopen cam-cdrom.so errno No such file or directory ptl-1:0:0
+Nov 26 09:31:27.580                  random.131081              qcrypto*     0    SLOG2_NOTICE  qcrypto: default tag: 'random'
+Nov 26 09:31:27.582                  random.131081              qcrypto      0    SLOG2_NOTICE  qcrypto: loading configuration file '/proc/boot/qcrypto.conf'
+Nov 26 09:31:27.625                  random.131081              qcrypto      0    SLOG2_NOTICE  qcrypto: 'openssl-3' plugin loaded
+Nov 26 09:31:27.705               random.131081..0                  low*     0    SLOG2_NOTICE  random: Failed to open seed file /data/var/random/rnd-seed, errno (2) [state_save.c(67)]
+Nov 26 09:31:27.877                devc_pty.155659                 slog*     0   SLOG2_WARNING  io-char: Invalid option
+Nov 26 09:31:28.174                 io_sock.163853          main_buffer*     1      SLOG2_INFO  io-sock -m phy -m pci -m usb -d vtnet_pci 
+Nov 26 09:31:28.175                 io_sock.163853          main_buffer      1      SLOG2_INFO  io-sock fullpath: /system/bin/io-sock
+Nov 26 09:31:28.175                 io_sock.163853          main_buffer      1      SLOG2_INFO  io-sock BuildID 77dadaf63c2d4c8bc13f4a2c84694ed2
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  Copyright (c) 1992-2023 The FreeBSD Project.
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  Copyright (c) 1979, 1980, 1983, 1986, 1988, 1989, 1991, 1992, 1993, 1994
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  	The Regents of the University of California. All rights reserved.
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  FreeBSD is a registered trademark of The FreeBSD Foundation.
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  FreeBSD 14.4-RELEASE-p9 n1351-c0e5c6a6c2c8 
+Nov 26 09:31:28.197                 io_sock.163853          main_buffer      1      SLOG2_INFO  ntox86_64-gcc (QNX8.0.0-ra7e8d3cd2255b7b0fd7ed75b5fd7082edd813c9d-1008) 12.2.0
+Nov 26 09:31:28.346                 io_sock.163853          main_buffer      1      SLOG2_INFO  wlan: mac acl policy registered
+Nov 26 09:31:28.387                 io_sock.163853          main_buffer      1      SLOG2_INFO  aesni0: <AES-CBC,AES-CCM,AES-GCM,AES-ICM,AES-XTS,SHA1,SHA256> on QNX
+Nov 26 09:31:28.389                 io_sock.163853          main_buffer      1      SLOG2_INFO  Event timer "QNX" frequency 1000 Hz quality 600
+Nov 26 09:31:28.396                 io_sock.163853          main_buffer      1      SLOG2_INFO  Timecounters tick every 1.000 msec
+Nov 26 09:31:28.397                 io_sock.163853          main_buffer      1      SLOG2_INFO  Timecounter "QNX" frequency 2197699921 Hz quality 600
+Nov 26 09:31:28.722                 io_sock.163853          main_buffer     12      SLOG2_INFO  lo0: link state changed to UP
+Nov 26 09:31:28.758                 io_sock.163853          main_buffer      1      SLOG2_INFO  io-sock startup complete
+Nov 26 09:31:28.772                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-phy.so: loading module with ""
+Nov 26 09:31:28.797                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library fullpath: /system/lib/dll/mods-phy.so
+Nov 26 09:31:28.798                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library BuildID f19ee6bc41516e18c25439010458f532
+Nov 26 09:31:28.808                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-phy.so: loaded
+Nov 26 09:31:28.808                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-pci.so: loading module with ""
+Nov 26 09:31:28.827                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library fullpath: /system/lib/dll/mods-pci.so
+Nov 26 09:31:28.827                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library BuildID 57b904a59a7612ab3a9d491c98972904
+Nov 26 09:31:28.832                 io_sock.163853          main_buffer     23      SLOG2_INFO  pci0: <pci-server> on QNX
+Nov 26 09:31:28.847                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-pci.so: loaded
+Nov 26 09:31:28.847                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-usb.so: loading module with ""
+Nov 26 09:31:28.915                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library fullpath: /system/lib/dll/mods-usb.so
+Nov 26 09:31:28.915                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library BuildID 39fde15b20041d6c5f124e6fd5a3f1c7
+Nov 26 09:31:28.921                 io_sock.163853          main_buffer     23      SLOG2_INFO  iousb0: <io-usb-otg> on QNX
+Nov 26 09:31:28.923                 io_sock.163853          main_buffer     23      SLOG2_INFO  iousb0: IOUSB discovery connect failed (2)
+Nov 26 09:31:28.923                 io_sock.163853          main_buffer     23      SLOG2_INFO  device_attach: iousb0 attach returned 2
+Nov 26 09:31:28.924                 io_sock.163853          main_buffer     23      SLOG2_INFO  mods-usb.so: loaded
+Nov 26 09:31:28.925                 io_sock.163853          main_buffer     23      SLOG2_INFO  devs-vtnet_pci.so: loading module with ""
+Nov 26 09:31:28.968                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library fullpath: /system/lib/dll/devs-vtnet_pci.so
+Nov 26 09:31:28.968                 io_sock.163853          main_buffer     23      SLOG2_INFO  Library BuildID add6a4afbd571c80d88b3032c988a360
+Nov 26 09:31:28.972                 io_sock.163853          main_buffer     23      SLOG2_INFO  iousb0: <io-usb-otg> on QNX
+Nov 26 09:31:28.973                 io_sock.163853          main_buffer     23      SLOG2_INFO  iousb0: IOUSB discovery connect failed (2)
+Nov 26 09:31:28.973                 io_sock.163853          main_buffer     23      SLOG2_INFO  device_attach: iousb0 attach returned 2
+Nov 26 09:31:28.973                 io_sock.163853          main_buffer     23      SLOG2_INFO  devs-vtnet_pci.so: loaded
+Nov 26 09:31:48.536                 io_sock.163853          main_buffer     24      SLOG2_INFO  io-sock dropped uid:gid(s) to: 33:33
+Nov 26 09:31:48.846                  dhcpcd.221199                 slog*     0      SLOG2_INFO  <30>Nov 26 09:31:48 dhcpcd[221199-1]: dhcpcd-10.0.1 starting
+Nov 26 09:31:48.974                  dhcpcd.221199                 slog      0     SLOG2_ERROR  <27>Nov 26 09:31:48 dhcpcd[225297-1]: no valid interfaces found
+Nov 26 09:31:49.824                 sshd.258063..0                 slog*     0      SLOG2_INFO  <38>Nov 26 09:31:49 sshd[258063-1]: Server listening on :: port 22.
+Nov 26 09:31:49.835                 sshd.258063..1                 slog*     0      SLOG2_INFO  <38>Nov 26 09:31:49 sshd[258063-1]: Server listening on 0.0.0.0 port 22.
+Nov 26 09:31:50.451        cordon_supervise.360468            supervise*     0      SLOG2_INFO  cordon-supervise start kind=up pid=360468 service=/proc/boot/cordon max_restarts=4 type=cordon_t
+Nov 26 09:31:50.457        cordon_supervise.360468            supervise      0      SLOG2_INFO  cordon-supervise spawn kind=spawn seq=1 pid=372757
+Nov 26 09:31:50.476                  cordon.372757               cordon*     0      SLOG2_INFO  cordon up kind=start seq=1 pid=372757 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+Nov 26 09:31:51.608                  cordon.372757               cordon      0      SLOG2_INFO  cordon deny kind=write pid=405526 type=cordon_probe_t result=DENY check=EPERM
+Nov 26 09:31:51.799                  cordon.372757               cordon      0      SLOG2_INFO  cordon accept kind=write pid=442390 type=cordon_writer_t result=ACCEPT bytes=22 record=zone=main state=sealed
+Nov 26 09:31:54.698        cordon_supervise.360468            supervise      0      SLOG2_INFO  cordon-supervise exit kind=exit seq=1 pid=372757 signal=9 code=-1
+Nov 26 09:31:54.700        cordon_supervise.360468            supervise      0      SLOG2_INFO  cordon-supervise respawn kind=respawn next_seq=2
+Nov 26 09:31:54.714        cordon_supervise.360468            supervise      0      SLOG2_INFO  cordon-supervise spawn kind=spawn seq=2 pid=577557
+Nov 26 09:31:54.760                  cordon.577557               cordon*     0      SLOG2_INFO  cordon up kind=start seq=2 pid=577557 path=/dev/cordon zone=zone-main policy=0x995f85da object_type=1 write_perm=present status_perm=present
+CORDON-SLOG2-END
+CORDON-G2-COMPLETE mode=normal
+
+To exit QEMU, type <ctrl>a x
+
+[?7hProcess count:23
+Startup complete
+QNX cordon-g2 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+qemu-system-x86_64: terminating on signal 15 from pid 1241698 (timeout)

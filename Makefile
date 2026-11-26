@@ -47,7 +47,7 @@ images: target
 	target/boot/build-g2-image.sh violated
 
 evidence:
-	sh tools/record-evidence.sh $(CONSOLE_DIR)
+	bash tools/record-evidence.sh $(CONSOLE_DIR)
 
 codelab:
 	$(PYTHON) codelab/render.py --check

@@ -88,7 +88,7 @@ run "2 host static check" static_check
 
 # 3 ------------------------------------------------------------------------
 secrets() {
-    "$PYTHON" tools/secret_scan.py README.md docs codelab host target tests tools || return 1
+    "$PYTHON" tools/secret_scan.py README.md docs codelab host target tests tools evidence || return 1
     if [ -d "$WORKSPACE/hackathons/qnx-2026" ]; then
         "$PYTHON" tools/secret_scan.py --ignore license-key "$WORKSPACE/hackathons/qnx-2026"
     fi

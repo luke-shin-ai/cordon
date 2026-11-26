@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Record the build and boot evidence that is published with this repository.
 #
 #   tools/record-evidence.sh [console-dir]
@@ -106,7 +106,7 @@ fi
 # ------------------------------------------------------------------ image.json
 if [ -n "${CONSOLE_DIR:-}" ] && [ -d "${CONSOLE_DIR:-}" ]; then
     for mode in normal violated; do
-        src=$(ls "$CONSOLE_DIR"/"$mode"*.log 2>/dev/null | head -1)
+        src=$(ls "$CONSOLE_DIR"/*"$mode"*.log 2>/dev/null | head -1)
         if [ -n "$src" ]; then
             cp "$src" "$EVIDENCE/run/console-$mode.log"
         fi
