@@ -117,20 +117,24 @@ repository was produced with the template provider, offline.
 
 The bundle is the only input the gate and the note layer may read.
 
-## Guaranteed and not guaranteed
+## What a PASS means, and what it does not
 
-Guaranteed by a PASS bundle: the six scenarios were executed on the image whose
-hashes are in `image.json`, and their observations were as stated. The negative
-control is part of that: an image whose first client starts before the service
-must earn FAIL, and the gate expects FAIL for it. If such an image ever earned
-PASS, the gate would fail, because then the control proved nothing.
+A PASS bundle means the six scenarios were executed on the image whose hashes
+are in `image.json`, and their observations were as stated. The negative control
+is part of that: an image whose first client starts before the service must earn
+FAIL, and the gate expects FAIL for it. If such an image ever earned PASS, the
+gate would fail, because then the control proved nothing. The gate trusts the
+console it is given: it does not yet sign a bundle or prove cryptographically
+that a console came from the image named in `image.json`.
 
-Not guaranteed: that the image is correct outside these six scenarios, that it
+It does not mean the image is correct outside these six scenarios, that it
 meets any safety certification, or anything about speed, rate or resource use.
 Section 4.6(i) of the QNX Development License Agreement (Non-Commercial)
 restricts publishing the results of performance or functional evaluation, so no
-such result appears in this repository, in the submission text or in the video.
-Timestamps in a slog2 dump are event labels, not measurements.
+figures about speed, time, memory or load appear in this repository, in the
+submission text or in the video. A verdict here says only whether a documented
+scenario behaved as specified. Timestamps in a slog2 dump are event labels, not
+measurements.
 
 Two substitutions are recorded here rather than hidden in a caption:
 
@@ -140,8 +144,9 @@ Two substitutions are recorded here rather than hidden in a caption:
   `$QNX_TARGET`, and the software center install path for it needs myQNX
   credentials. Restart is therefore implemented by `cordon-supervise` with
   `posix_spawn`, `waitpid` and slog2, which are the primitives a HAM rule would
-  drive. Claim C4 keeps its statement and its note says which process performs
-  it. Enabling the real HAM is one package install and one entity file.
+  drive. Claim C4 names the supervisor; its note says which package would take
+  that role in a production image. Enabling the real HAM is one package install
+  and one entity file.
 - **Screen process.** The image is built with `--graphics=no`, so there is no
   QNX Screen. The kill-screen scenario terminates `cordon-view`, the long lived
   status consumer, which is the same kind of death: the process that consumes

@@ -57,21 +57,22 @@ step.
 Duration: 8:00
 
 `mkqnximage` is part of the SDP and builds a bootable QEMU image from your own
-file list. Make a project directory and build the stock image once, before
-adding anything of your own, so you know the base is good.
+file list. It works inside the directory it is started in: the project lives
+there, and the build writes its output beside the project.
 
 ```bash
-mkdir -p ~/cordon-lab && cd ~/cordon-lab
-mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/base
+mkdir -p ~/cordon-lab/base && cd ~/cordon-lab/base
+mkqnximage --type=qemu --arch=x86_64 --hostname=cordon --noprompt
 ```
 
-The build writes `ifs.bin` and `disk-qemu` next to a `build` directory. Boot
-it with the IFS passed as the kernel:
+The build ends with `ifs.bin` and `disk-qemu` in `output/`. Boot the stock image
+once, before adding anything of your own, so you know the base is good. Pass the
+IFS as the kernel and attach the disk:
 
 ```bash
 qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
-  -drive file=$PWD/base/disk-qemu,format=raw,if=ide \
-  -kernel $PWD/base/ifs.bin
+  -drive file=$PWD/output/disk-qemu,format=raw,if=ide \
+  -kernel $PWD/output/ifs.bin
 ```
 
 Two details matter on QEMU. Without `-cpu max` the QNX kernel may stop early
@@ -85,8 +86,11 @@ guest shell answers:
 uname -a
 ```
 
-Keep this shell open. Every command in the next steps runs either on this
-guest or on the host beside it.
+Keep this shell open. The guest has no file share with the host, so a program
+reaches the target one way: it is added to the boot image on the host, and it
+runs from `/proc/boot` when that image boots. Every program in this lab follows
+that path. You build it on the host into `build/`, the image step at the end
+lists it in `local/snippets/ifs_files.custom`, and the boot starts it.
 
 ## Write the Resource Manager
 Duration: 12:00
@@ -193,8 +197,7 @@ int main(void)
 }
 ```
 
-Build it for the target and copy it into the image directory you will grow in
-a later step:
+Build it on the host. The image carries the binary as `/proc/boot/cordon`:
 
 ```bash
 qcc -Wall -Wextra -O1 -o build/cordon cordon.c
@@ -204,7 +207,8 @@ qcc -Wall -Wextra -O1 -o build/cordon cordon.c
 and `iofunc_write_verify` apply the default permission model; the policy step
 replaces that default with an explicit question to secpol.
 
-Run it on the guest for now:
+Once the image step below carries this binary, a boot starts it and the path
+exists in the guest:
 
 ```bash
 /proc/boot/cordon &
@@ -265,17 +269,17 @@ int main(int argc, char **argv)
 }
 ```
 
-Build and try both operations:
+Build it on the host; the image carries it as `cordon-client`, and the two
+operations are `status` and `write`:
 
 ```bash
 qcc -Wall -Wextra -O1 -o build/cordon-client client.c
-./build/cordon-client status
-./build/cordon-client write
 ```
 
-The status read returns the service pid and the event count. The write adds
-one event. Nothing has been secured yet: any process that can open the path can
-write to it. That is what the next step changes.
+The status read returns the service pid and the event count. The write adds one
+event. Until the policy step, nothing is secured: any process that can open the
+path can write to it. The boot image step runs both operations from the console,
+so you see the answer for each.
 
 ## Add a Security Policy
 Duration: 12:00
@@ -307,17 +311,14 @@ Three layers are in play:
    The service asks the policy on every read and write instead of trusting
    itself.
 
-Compile and push the policy, then start the service and the clients with an
-explicit type:
+Compile the policy into the build directory the image step copies from:
 
 ```bash
-secpolcompile -o secpol.bin cordon.policy
-secpolpush
-secpol -Q
-on -T cordon_t ./build/cordon &
-on -T cordon_probe_t ./build/cordon-client write
-on -T cordon_writer_t ./build/cordon-client write
+secpolcompile -o build/secpol.bin cordon.policy
 ```
+
+At boot the image pushes that file and starts each program under an explicit
+type. These are the startup lines the image step carries:
 
 The probe is refused and the writer succeeds. A refusal from the policy check
 inside the service comes back as `errno=13` (`EACCES`). A client type with no
@@ -407,36 +408,71 @@ sequence number. The service prints its sequence in the status read, so a
 client can tell the difference between the service that died and the one that
 replaced it.
 
-```bash
-on -T cordon_t ./build/cordon-supervise ./build/cordon &
+```text
+on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &
 sleep 1
 kill -9 $(pidin -F "%N %p" | awk '/cordon$/ {print $2}')
-./build/cordon-client status
+on -T cordon_writer_t /proc/boot/cordon-client status
 ```
 
 ## Put It in the Boot Image
 Duration: 10:00
 
-Now move the pieces into the image so a boot produces the whole run. Add a
-startup snippet that pushes the policy, starts the supervisor, waits for the
-path, and runs the clients in a fixed order.
+Now move the pieces into the image so a boot produces the whole run. Copy the
+stock project twice, add the payload to each image file list, and write the
+startup lines into each project's `local/snippets/post_start.custom`.
 
-```text
-# post_startup.sh, appended to the image start script
+```bash
+LAB=$HOME/cordon-lab
+SDP_TARGET=${QNX_TARGET:?source qnxsdp-env.sh first}/x86_64
+cd $LAB
+cp -r base normal
+cp -r base broken
+for d in normal broken; do
+  for f in cordon cordon-client cordon-supervise; do
+    echo "[uid=0 gid=0 perms=0755] /proc/boot/$f=$LAB/build/$f" >> $d/local/snippets/ifs_files.custom
+  done
+  echo "[uid=0 gid=0 perms=0755] /proc/boot/secpol.bin=$LAB/build/secpol.bin" >> $d/local/snippets/ifs_files.custom
+  echo "[uid=0 gid=0 perms=0755] /proc/boot/secpolpush=$SDP_TARGET/bin/secpolpush" >> $d/local/snippets/ifs_files.custom
+  echo "[uid=0 gid=0 perms=0755] /proc/boot/secpol=$SDP_TARGET/bin/secpol" >> $d/local/snippets/ifs_files.custom
+done
+```
+
+The startup lines for the normal image. It pushes the policy, starts the
+supervisor, waits for the path, and runs the clients in a fixed order:
+
+```bash
+cat >> normal/local/snippets/post_start.custom <<'EOF'
 secpolpush
 on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &
 while [ ! -e /dev/cordon ]; do sleep 1; done
 on -T cordon_probe_t /proc/boot/cordon-client write
 on -T cordon_writer_t /proc/boot/cordon-client write
-echo CORDON-G2-COMPLETE
+echo CORDON-NORMAL-COMPLETE
+EOF
 ```
 
-Build two images from the same sources. The only difference is the order: in
-the second one the first client runs before the service exists.
+The second image differs only in the order: the first client runs before the
+service exists.
 
 ```bash
-mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/normal   --post_startup=normal.sh
-mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/broken   --post_startup=broken.sh
+cat >> broken/local/snippets/post_start.custom <<'EOF'
+secpolpush
+on -T cordon_probe_t /proc/boot/cordon-client write
+echo CORDON-BROKEN-FIRST-CLIENT
+on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &
+while [ ! -e /dev/cordon ]; do sleep 1; done
+on -T cordon_writer_t /proc/boot/cordon-client write
+echo CORDON-BROKEN-COMPLETE
+EOF
+```
+
+Build both, then boot them the same way you booted the stock image, pointing at
+each `output/`:
+
+```bash
+cd $LAB/normal && mkqnximage --build --force --noprompt
+cd $LAB/broken && mkqnximage --build --force --noprompt
 ```
 
 Both images boot. In the broken image the first client fails with
