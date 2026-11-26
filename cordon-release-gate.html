@@ -10,7 +10,7 @@
 <nav><a href="index.html">All codelabs</a></nav>
 <main>
 <header class="meta">
-<p class="summary">Write a resource manager at /dev/cordon, protect it with a secpol policy, keep it alive with a supervisor, boot the result in QEMU, and judge the image from the host with a pass or fail gate.</p>
+<p class="summary">Write a resource manager at /dev/cordon, protect it with a secpol policy, keep it alive with a supervisor, boot the result in QEMU, and decide from the host whether the image matches the scenario rules.</p>
 <table>
 <tr><th>Categories</th><td>System Services, Security</td></tr>
 <tr><th>Level</th><td>intermediate</td></tr>
@@ -24,12 +24,12 @@
 <section id="overview">
 <h2>Overview</h2>
 <p class="duration">Estimated time: 3:00</p>
-<p>In this codelab you build a small but complete QNX 8.0 service that owns one path in the pathname space, <code>/dev/cordon</code>. Four things are wired together:</p>
-<ul><li>a resource manager that answers a status read and records write events</li></ul>
+<p>In this codelab you build a small QNX 8.0 service that owns one path in the pathname space, <code>/dev/cordon</code>, and you decide from the host whether a boot of the image matches a written rule set. Four pieces are wired together:</p>
 <ul><li>a security policy that decides which process may read and which may write</li></ul>
+<ul><li>a resource manager that answers a status read and records write events</li></ul>
 <ul><li>a supervisor that starts the service again after it dies</li></ul>
-<ul><li>a boot image plus a host gate that turns the run into PASS or FAIL</li></ul>
-<p>The point is not the service itself. The point is the last step: an image is released only when every check the verifier expects has a recorded verdict. Nothing in this codelab measures time, rate or resource use. Every decision is a true or false question: did the answer arrive, which errno came back, did the sequence number change.</p>
+<ul><li>a boot image, a console capture, and a host gate that applies the rules</li></ul>
+<p>Every code listing in this codelab is taken from the companion repository <code>https://github.com/luke-shin-ai/cordon</code> at render time, so the listing and the files in the repository are the same text. Nothing here measures time, rate or resource use, and the host tool reports its result and leaves the publishing decision to you.</p>
 <h3>What you&#x27;ll need</h3>
 <p>license covers this: <a href="https://qnx.software/en/developers/get-started/qnx-everywhere">QNX Everywhere</a>.</p>
 <ul><li>A QNX Software Development Platform 8.0 install. A free non-commercial</li></ul>
@@ -40,117 +40,387 @@
 <p>console is the only output channel used here.</p>
 <ul><li>A shell where you can run the image in the foreground. The guest serial</li></ul>
 <h3>Check the toolchain</h3>
-<pre><code class="language-bash">source ~/qnx800/qnxsdp-env.sh
+<pre><code class="language-bash">git clone https://github.com/luke-shin-ai/cordon.git
+cd cordon
+source ~/qnx800/qnxsdp-env.sh
 qcc -V
-which mkqnximage secpolcompile
+command -v mkqnximage secpolcompile
 qemu-system-x86_64 --version</code></pre>
-<p><code>qcc -V</code> prints the target list. The default target for this codelab is <code>gcc_ntox86_64</code>, which matches the QEMU x86_64 image you build in the next step.</p>
+<p><code>qcc -V</code> prints the target list. The target used here is <code>gcc_ntox86_64</code>, which matches the QEMU x86_64 image you build in the next step. <code>qcc -V</code> also prints the version, and <code>12.2.0</code> is the one this codelab was run with.</p>
 </section>
 <section id="build-and-boot-a-qnx-8-0-image">
 <h2>Build and Boot a QNX 8.0 Image</h2>
 <p class="duration">Estimated time: 8:00</p>
-<p><code>mkqnximage</code> is part of the SDP and builds a bootable QEMU image from your own file list. It works inside the directory it is started in: the project lives there, and the build writes its output beside the project.</p>
+<p><code>mkqnximage</code> is part of the SDP and builds a bootable QEMU image from your own file list. It works inside the directory it is started in: the project lives there, and the build writes its output to <code>output/</code> beside the project.</p>
 <pre><code class="language-bash">mkdir -p ~/cordon-lab/base &amp;&amp; cd ~/cordon-lab/base
 mkqnximage --type=qemu --arch=x86_64 --hostname=cordon --noprompt</code></pre>
-<p>The build ends with <code>ifs.bin</code> and <code>disk-qemu</code> in <code>output/</code>. Boot the stock image once, before adding anything of your own, so you know the base is good. Pass the IFS as the kernel and attach the disk:</p>
+<p>The build ends with <code>output/ifs.bin</code> and <code>output/disk-qemu</code>. Boot the stock image once, before adding anything of your own, so you know the base is good. Pass the IFS as the kernel and attach the disk:</p>
 <pre><code class="language-bash">qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
   -drive file=$PWD/output/disk-qemu,format=raw,if=ide \
   -kernel $PWD/output/ifs.bin</code></pre>
-<p>Two details matter on QEMU. Without <code>-cpu max</code> the QNX kernel may stop early on a CPUID check and print nothing. The image is a multiboot IFS, so pass it with <code>-kernel</code> and also attach the disk.</p>
+<p>On QEMU two details matter. Without <code>-cpu max</code> the QNX kernel may stop early on a CPUID check and print nothing. The image is a multiboot IFS, so pass it with <code>-kernel</code> and also attach the disk.</p>
 <p>You are in when the console prints a QNX banner and <code>Startup complete</code>, and the guest shell answers:</p>
 <pre><code class="language-bash">uname -a</code></pre>
-<p>Keep this shell open. The guest has no file share with the host, so a program reaches the target one way: it is added to the boot image on the host, and it runs from <code>/proc/boot</code> when that image boots. Every program in this lab follows that path. You build it on the host into <code>build/</code>, the image step at the end lists it in <code>local/snippets/ifs_files.custom</code>, and the boot starts it.</p>
+<p>Leave this shell with <code>Ctrl-a</code> then <code>x</code>, which stops QEMU and returns you to the host. The guest has no file share with the host, so a program reaches the target one way: it is added to the boot image on the host, and it runs from <code>/proc/boot</code> when that image boots. Every program in this lab follows that path.</p>
 </section>
-<section id="write-the-resource-manager">
-<h2>Write the Resource Manager</h2>
-<p class="duration">Estimated time: 12:00</p>
-<p>A QNX resource manager registers a path, then receives messages for it. The kernel routes a client&#x27;s <code>open</code>, <code>read</code> and <code>write</code> to your handlers. Save this as <code>cordon.c</code> on the host.</p>
-<pre><code class="language-c">#include &lt;errno.h&gt;
+<section id="write-the-security-policy">
+<h2>Write the Security Policy</h2>
+<p class="duration">Estimated time: 10:00</p>
+<p><code>secpol</code> decides access in the kernel and in the service. A policy file names types, custom permission classes and the rules between them. The service comes first in this codelab because its code asks the policy for a decision, and the policy is what gives those names a meaning.</p>
+<pre><code class="language-text">#
+#
+#
+
+type cordon_t;
+
+type cordon_writer_t;
+
+type cordon_probe_t;
+
+type cordon_view_t;
+
+type cordon_outsider_t;
+
+class cordon { write status };
+
+allow_attach cordon_t /dev/cordon;
+
+allow cordon_t self:ability { spawn };
+
+allow { cordon_writer_t cordon_probe_t cordon_view_t } cordon_t : channel connect;
+
+allow cordon_outsider_t self:ability { spawn };
+
+allow { cordon_writer_t cordon_probe_t cordon_view_t } cordon_t : cordon status;
+
+allow cordon_writer_t cordon_t : cordon write;</code></pre>
+<p>Three layers are in play, and the file separates them:</p>
+<ol><li><code>allow_attach</code> decides which process may put a channel at the path.</li></ol>
+<p>with no rule, such as <code>cordon_outsider_t</code>, is refused by the kernel before your code runs.</p>
+<ol><li><code>channel connect</code> decides which type may reach the service at all. A type</li></ol>
+<p>The service asks the policy on every read and write instead of trusting itself.</p>
+<ol><li>The custom class <code>cordon</code> decides the two operations the handlers perform.</li></ol>
+<p>Compile the policy. <code>mkqnximage --policy</code> does this for you at image build time; running <code>secpolcompile</code> by hand is how you check the file on its own:</p>
+<pre><code class="language-bash">secpolcompile -o /tmp/secpol-check.bin target/secpol/cordon.policy</code></pre>
+<p>A refusal from the policy check inside the service comes back to a client as <code>errno=13</code> (<code>EACCES</code>). A client type with no connect rule never reaches the service and gets <code>errno=1</code> (<code>EPERM</code>) from the kernel.</p>
+</section>
+<section id="write-the-guarded-service">
+<h2>Write the Guarded Service</h2>
+<p class="duration">Estimated time: 15:00</p>
+<p>A QNX resource manager registers a path, then receives messages for it. The kernel routes a client&#x27;s <code>open</code>, <code>read</code> and <code>write</code> to your handlers. This is the whole service:</p>
+<pre><code class="language-c">/*
+ * /dev/cordon resource manager. QNX 8.0, x86_64.
+ *
+ * The guarded service. It owns one path in the pathname space, answers a
+ * status read, and records write events. Who may read and who may write is
+ * decided by the security policy, not by this file: the policy grants the
+ * custom permissions &quot;write&quot; and &quot;status&quot; on class &quot;cordon&quot; to some types, and
+ * this process asks the policy for the answer on every read and write
+ * (secpol_check_permission). With no policy loaded the same code path still
+ * runs; libsecpol then evaluates the request the way it documents for a system
+ * without policies.
+ *
+ * Evidence lines go to three places: the serial console, slog2, and the event
+ * log file on the writable data partition. Nothing here measures time, rate
+ * or resource use; see docs/design.md section 5.
+ *
+ * Build: qcc -o cordon cordon.c -lsecpol
+ */
+
+#include &lt;errno.h&gt;
 #include &lt;fcntl.h&gt;
 #include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
 #include &lt;string.h&gt;
+#include &lt;sys/stat.h&gt;
 #include &lt;unistd.h&gt;
+
 #include &lt;sys/dispatch.h&gt;
 #include &lt;sys/iofunc.h&gt;
 #include &lt;sys/resmgr.h&gt;
 #include &lt;sys/slog2.h&gt;
 
-static iofunc_attr_t attr;
-static int events;
-static char status[256];
+#include &lt;secpol/secpol.h&gt;
 
-/* One line per fact. The host decides what the line means. */
+#define CORDON_PATH      &quot;/dev/cordon&quot;
+#define CORDON_LOG       &quot;/data/var/cordon/events.log&quot;
+#define CORDON_CLASS     &quot;cordon&quot;
+#define CORDON_STATUSBUF 512
+
+static iofunc_attr_t attr;
+static slog2_buffer_t slog_buf = NULL;
+static int event_fd = -1;
+static int event_count;
+static int restart_seq;
+static const char *zone_name = &quot;zone-main&quot;;
+static const char *log_path = CORDON_LOG;
+static char last_event[256] = &quot;none&quot;;
+static secpol_permission_t *perm_write;
+static secpol_permission_t *perm_status;
+static uint32_t object_type = 0;   /* the type our channel carries */
+static char status_buf[CORDON_STATUSBUF];
+
+static uint32_t current_policy_id(void)
+{
+    uint32_t id = 0;
+    if (secpol_get_policy_id(&amp;id) != 0) {
+        return 0;
+    }
+    return id;
+}
+
 static void emit(const char *kind, const char *detail)
 {
     printf(&quot;CORDON-OBS service=%s %s\n&quot;, kind, detail);
     fflush(stdout);
+    if (slog_buf != NULL) {
+        slog2f(slog_buf, 0, SLOG2_INFO, &quot;cordon %s %s&quot;, kind, detail);
+    }
+    if (event_fd &gt;= 0) {
+        int n = snprintf(NULL, 0, &quot;service %s %s\n&quot;, kind, detail);
+        char *line = malloc((size_t)n + 1);
+        if (line != NULL) {
+            snprintf(line, (size_t)n + 1, &quot;service %s %s\n&quot;, kind, detail);
+            if (write(event_fd, line, (size_t)n) &lt; 0) {
+                /* the console line above already carries the fact */
+            }
+            free(line);
+        }
+    }
+}
+
+static void log_open(void)
+{
+    const char *slash = strrchr(log_path, &#x27;/&#x27;);
+    if (slash != NULL &amp;&amp; slash != log_path) {
+        char dir[256];
+        size_t len = (size_t)(slash - log_path);
+        if (len &lt; sizeof dir) {
+            memcpy(dir, log_path, len);
+            dir[len] = &#x27;\0&#x27;;
+            mkdir(dir, 0755);
+        }
+    }
+    event_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (event_fd &lt; 0) {
+        printf(&quot;CORDON-OBS service=log-open result=ERR errno=%d\n&quot;, errno);
+        fflush(stdout);
+    }
+}
+
+static slog2_buffer_t slog_open(void)
+{
+    slog2_buffer_set_config_t cfg;
+    slog2_buffer_t handle = NULL;
+
+    memset(&amp;cfg, 0, sizeof cfg);
+    cfg.num_buffers = 1;
+    cfg.buffer_set_name = &quot;cordon&quot;;
+    cfg.verbosity_level = SLOG2_INFO;
+    cfg.buffer_config[0].buffer_name = &quot;cordon&quot;;
+    cfg.buffer_config[0].num_pages = 2;
+    if (slog2_register(&amp;cfg, &amp;handle, 0) != 0) {
+        return NULL;
+    }
+    return handle;
+}
+
+/* Name of the type the requesting process is running as, from the message. */
+static void client_type_name(const struct _msg_info *info, char *buf, size_t len)
+{
+    const char *name = secpol_get_type_name(NULL, info-&gt;type_id);
+
+    if (name != NULL) {
+        snprintf(buf, len, &quot;%s&quot;, name);
+    } else {
+        snprintf(buf, len, &quot;type_id:%u&quot;, (unsigned)info-&gt;type_id);
+    }
 }
 
 static int cordon_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
 {
     iofunc_ocb_t *o = (iofunc_ocb_t *)ocb;
+    int status;
+    int total;
     int n;
 
-    if (iofunc_read_verify(ctp, msg, ocb, NULL) != EOK) {
+    if ((status = iofunc_read_verify(ctp, msg, ocb, NULL)) != EOK) {
+        return status;
+    }
+    if ((msg-&gt;i.xtype &amp; _IO_XTYPE_MASK) != _IO_XTYPE_NONE) {
+        return ENOSYS;
+    }
+    if (perm_status == NULL ||
+        secpol_check_permission(&amp;ctp-&gt;info, object_type, perm_status) != 0) {
+        char tname[64];
+        char detail[160];
+        client_type_name(&amp;ctp-&gt;info, tname, sizeof tname);
+        snprintf(detail, sizeof detail, &quot;kind=status pid=%d type=%s result=DENY check=EPERM&quot;,
+                 (int)ctp-&gt;info.pid, tname);
+        emit(&quot;deny&quot;, detail);
         return EACCES;
     }
-    n = snprintf(status, sizeof status, &quot;pid=%d events=%d\n&quot;, (int)getpid(), events);
-    if (o-&gt;offset &gt;= n) {
+
+    total = snprintf(status_buf, sizeof status_buf,
+                     &quot;pid=%d seq=%d zone=%s events=%d policy=0x%08x last=%s\n&quot;,
+                     (int)getpid(), restart_seq, zone_name, event_count,
+                     (unsigned)current_policy_id(), last_event);
+    if (total &lt; 0) {
+        return EIO;
+    }
+    if (total &gt;= (int)sizeof status_buf) {
+        total = (int)sizeof status_buf - 1;
+    }
+    if (o-&gt;offset &gt;= (off_t)total) {
         _IO_SET_READ_NBYTES(ctp, 0);
         return _RESMGR_NPARTS(0);
     }
-    SETIOV(ctp-&gt;iov, status + o-&gt;offset, n - o-&gt;offset);
-    _IO_SET_READ_NBYTES(ctp, n - o-&gt;offset);
-    o-&gt;offset = n;
+    n = total - (int)o-&gt;offset;
+    if (n &gt; (int)msg-&gt;i.nbytes) {
+        n = (int)msg-&gt;i.nbytes;
+    }
+    _IO_SET_READ_NBYTES(ctp, n);
+    SETIOV(ctp-&gt;iov, status_buf + o-&gt;offset, n);
+    o-&gt;offset += n;
     return _RESMGR_NPARTS(1);
 }
 
 static int cordon_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb)
 {
-    char record[128];
-    int n = msg-&gt;i.nbytes;
+    int status;
+    int nbytes = msg-&gt;i.nbytes;
+    char record[256];
+    char tname[64];
+    char detail[512];
 
-    if (iofunc_write_verify(ctp, msg, ocb, NULL) != EOK) {
+    if ((status = iofunc_write_verify(ctp, msg, ocb, NULL)) != EOK) {
+        return status;
+    }
+    client_type_name(&amp;ctp-&gt;info, tname, sizeof tname);
+
+    if (perm_write == NULL ||
+        secpol_check_permission(&amp;ctp-&gt;info, object_type, perm_write) != 0) {
+        snprintf(detail, sizeof detail, &quot;kind=write pid=%d type=%s result=DENY check=EPERM&quot;,
+                 (int)ctp-&gt;info.pid, tname);
+        emit(&quot;deny&quot;, detail);
         return EACCES;
     }
-    if (n &lt;= 0 || n &gt;= (int)sizeof record) {
+
+    if (nbytes &lt;= 0) {
+        snprintf(detail, sizeof detail, &quot;kind=write pid=%d type=%s result=DENY reason=empty&quot;,
+                 (int)ctp-&gt;info.pid, tname);
+        emit(&quot;deny&quot;, detail);
         return EINVAL;
     }
-    if (resmgr_msgread(ctp, record, n, sizeof msg-&gt;i) != n) {
+    if (nbytes &gt; (int)sizeof record - 1) {
+        nbytes = (int)sizeof record - 1;
+    }
+    if (resmgr_msgread(ctp, record, nbytes, sizeof msg-&gt;i) != nbytes) {
         return EFAULT;
     }
-    record[n] = &#x27;\0&#x27;;
-    events++;
-    emit(&quot;accept&quot;, record);
+    record[nbytes] = &#x27;\0&#x27;;
+    while (nbytes &gt; 0 &amp;&amp; (record[nbytes - 1] == &#x27;\n&#x27; || record[nbytes - 1] == &#x27;\r&#x27;)) {
+        record[--nbytes] = &#x27;\0&#x27;;
+    }
+
+    event_count++;
+    snprintf(last_event, sizeof last_event, &quot;%s&quot;, record);
+    snprintf(detail, sizeof detail,
+             &quot;kind=write pid=%d type=%s result=ACCEPT bytes=%d record=%s&quot;,
+             (int)ctp-&gt;info.pid, tname, nbytes, record);
+    emit(&quot;accept&quot;, detail);
+
     _IO_SET_WRITE_NBYTES(ctp, msg-&gt;i.nbytes);
     return _RESMGR_NPARTS(0);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
     dispatch_t *dpp;
-    resmgr_attr_t rattr;
-    resmgr_connect_funcs_t connect;
-    resmgr_io_funcs_t io;
+    resmgr_attr_t resmgr_attr;
+    resmgr_connect_funcs_t connect_funcs;
+    resmgr_io_funcs_t io_funcs;
     dispatch_context_t *ctp;
+    const char *path = CORDON_PATH;
+    int opt;
+    char detail[512];
+
+    while ((opt = getopt(argc, argv, &quot;p:e:n:r:&quot;)) != -1) {
+        switch (opt) {
+        case &#x27;p&#x27;:
+            path = optarg;
+            break;
+        case &#x27;e&#x27;:
+            log_path = optarg;
+            break;
+        case &#x27;n&#x27;:
+            zone_name = optarg;
+            break;
+        case &#x27;r&#x27;:
+            restart_seq = atoi(optarg);
+            break;
+        default:
+            fprintf(stderr, &quot;usage: %s [-p path] [-e eventlog] [-n zone] [-r seq]\n&quot;, argv[0]);
+            return 2;
+        }
+    }
+
+    slog_buf = slog_open();
+    log_open();
+
+    /* The policy file is read on the target from /proc/boot/secpol.bin. Making
+     * it the default handle once is what lets secpol_get_permission() and
+     * secpol_get_type_name() resolve names and permissions from it. */
+    (void)secpol_open(NULL, SECPOL_USE_AS_DEFAULT);
+
+    /* The object every check is made against is our own channel, which carries
+     * the type the policy gave this service. Rules are written against that
+     * type name, so the check needs its number, not 0. */
+    object_type = secpol_get_type_id(NULL, &quot;cordon_t&quot;);
+    if (object_type == SECPOL_INVALID_TYPE) {
+        object_type = 0;
+    }
+
+    perm_write = secpol_get_permission(NULL, CORDON_CLASS, &quot;write&quot;, 0);
+    perm_status = secpol_get_permission(NULL, CORDON_CLASS, &quot;status&quot;, 0);
 
     dpp = dispatch_create();
-    memset(&amp;rattr, 0, sizeof rattr);
-    rattr.nparts_max = 1;
-    rattr.msg_max_size = 2048;
-    iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &amp;connect, _RESMGR_IO_NFUNCS, &amp;io);
-    iofunc_attr_init(&amp;attr, S_IFCHR | 0666, NULL, NULL);
-    io.read = cordon_read;
-    io.write = cordon_write;
-
-    if (resmgr_attach(dpp, &amp;rattr, &quot;/dev/cordon&quot;, _FTYPE_ANY, 0,
-                      &amp;connect, &amp;io, &amp;attr) == -1) {
-        perror(&quot;resmgr_attach&quot;);
+    if (dpp == NULL) {
+        printf(&quot;CORDON-OBS service=start result=ERR reason=dispatch errno=%d\n&quot;, errno);
+        fflush(stdout);
         return 1;
     }
-    emit(&quot;up&quot;, &quot;path=/dev/cordon&quot;);
+    memset(&amp;resmgr_attr, 0, sizeof resmgr_attr);
+    resmgr_attr.nparts_max = 1;
+    resmgr_attr.msg_max_size = 2048;
+    iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &amp;connect_funcs, _RESMGR_IO_NFUNCS, &amp;io_funcs);
+    iofunc_attr_init(&amp;attr, S_IFCHR | 0666, NULL, NULL);
+    io_funcs.read = cordon_read;
+    io_funcs.write = cordon_write;
+
+    if (resmgr_attach(dpp, &amp;resmgr_attr, path, _FTYPE_ANY, 0, &amp;connect_funcs, &amp;io_funcs,
+                      &amp;attr) == -1) {
+        printf(&quot;CORDON-OBS service=start result=ERR reason=attach errno=%d path=%s\n&quot;,
+               errno, path);
+        fflush(stdout);
+        return 1;
+    }
+
+    snprintf(detail, sizeof detail,
+             &quot;kind=start seq=%d pid=%d path=%s zone=%s policy=0x%08x object_type=%u &quot;
+             &quot;write_perm=%s status_perm=%s&quot;,
+             restart_seq, (int)getpid(), path, zone_name, (unsigned)current_policy_id(),
+             (unsigned)object_type,
+             perm_write != NULL ? &quot;present&quot; : &quot;missing&quot;,
+             perm_status != NULL ? &quot;present&quot; : &quot;missing&quot;);
+    emit(&quot;up&quot;, detail);
 
     ctp = dispatch_context_alloc(dpp);
+    if (ctp == NULL) {
+        printf(&quot;CORDON-OBS service=start result=ERR reason=context errno=%d\n&quot;, errno);
+        fflush(stdout);
+        return 1;
+    }
     for (;;) {
         ctp = dispatch_block(ctp);
         if (ctp == NULL) {
@@ -160,231 +430,815 @@ int main(void)
     }
     return 0;
 }</code></pre>
-<p>Build it on the host. The image carries the binary as <code>/proc/boot/cordon</code>:</p>
-<pre><code class="language-bash">qcc -Wall -Wextra -O1 -o build/cordon cordon.c</code></pre>
-<p><code>resmgr_attach</code> is the call that makes <code>/dev/cordon</code> appear. <code>iofunc_read_verify</code> and <code>iofunc_write_verify</code> apply the default permission model; the policy step replaces that default with an explicit question to secpol.</p>
-<p>Once the image step below carries this binary, a boot starts it and the path exists in the guest:</p>
-<pre><code class="language-bash">/proc/boot/cordon &amp;
-ls -l /dev/cordon</code></pre>
+<p>What to look at, in the order the file presents it:</p>
+<p><code>/dev/cordon</code>. <code>resmgr_attach</code> is the call that makes the path appear.</p>
+<ul><li><code>main</code> calls <code>dispatch_create</code>, <code>iofunc_func_init</code> and <code>resmgr_attach</code> for</li></ul>
+<p>zone, the event count, the policy id and the last accepted record.</p>
+<ul><li><code>cordon_read</code> answers a status read with the pid, the restart sequence, the</li></ul>
+<p>and in <code>/data/var/cordon/events.log</code>, and increments the event count.</p>
+<ul><li><code>cordon_write</code> takes the payload with <code>resmgr_msgread</code>, records it in slog2</li></ul>
+<p>their work. <code>object_type</code> is the number of the type the channel carries, resolved once in <code>main</code> with <code>secpol_get_type_id</code>. Passing 0 instead of that number matches no rule and denies every request.</p>
+<ul><li>Both handlers ask the policy with <code>secpol_check_permission</code> before they do</li></ul>
+<p>line names the client type the server saw. <code>secpol_type_id()</code> in the client is only accurate for a process that changes type with <code>secpol_transition_type()</code>.</p>
+<ul><li>The type a client runs as arrives in the message info structure, so the log</li></ul>
+<p>Build it with the other three programs in one step:</p>
+<pre><code class="language-bash">make target</code></pre>
+<p><code>make target</code> runs four <code>qcc</code> builds and one <code>secpolcompile</code>, with `-Wall -Wextra<code>, and prints the files it wrote to </code>target/build`.</p>
 </section>
-<section id="talk-to-the-node-from-a-client">
-<h2>Talk to the Node From a Client</h2>
-<p class="duration">Estimated time: 6:00</p>
-<p>A tiny client makes the two operations visible. Save it as <code>client.c</code>.</p>
-<pre><code class="language-c">#include &lt;errno.h&gt;
+<section id="talk-to-the-node-from-two-clients">
+<h2>Talk to the Node From Two Clients</h2>
+<p class="duration">Estimated time: 10:00</p>
+<p>Two small clients make the operations visible from the console. The first one runs a single operation per invocation and prints one line per fact:</p>
+<pre><code class="language-c">/*
+ * cordon-client. One QNX client of /dev/cordon, used by the scenario runner.
+ *
+ * It does one operation and prints one CORDON-OBS line, so the console log of
+ * the target carries the observation rather than a verdict. Whether the
+ * observation means PASS or FAIL is decided on the host by cordon run.
+ *
+ * Which security type this process runs as is not chosen here: the caller sets
+ * it with `on -T &lt;type&gt;`. The client prints the type it actually got, taken
+ * from libsecpol, which is the type the policy saw.
+ *
+ * Build: qcc -o cordon-client cordon-client.c -lsecpol
+ */
+
+#include &lt;errno.h&gt;
 #include &lt;fcntl.h&gt;
 #include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
 #include &lt;string.h&gt;
 #include &lt;unistd.h&gt;
 
-int main(int argc, char **argv)
-{
-    char buf[256];
-    int fd, n;
+#include &lt;secpol/secpol.h&gt;
 
-    if (argc &lt; 2) {
+#define CORDON_PATH &quot;/dev/cordon&quot;
+
+/* libsecpol notes that secpol_type_id() is only accurate for processes that
+ * change type with secpol_transition_type(); a process started with `on -T`
+ * can report 0 here. The authoritative type of a request is the one the
+ * resource manager sees in the message, and that is what it logs. This helper
+ * prints what it can and says so when it cannot. */
+static void type_name(char *buf, size_t len)
+{
+    uint32_t id = secpol_type_id();
+    const char *name = secpol_get_type_name(NULL, id);
+
+    if (name != NULL) {
+        snprintf(buf, len, &quot;%s&quot;, name);
+    } else if (id != 0 &amp;&amp; id != SECPOL_INVALID_TYPE) {
+        snprintf(buf, len, &quot;type_id:%u&quot;, (unsigned)id);
+    } else {
+        snprintf(buf, len, &quot;self-unreported&quot;);
+    }
+}
+
+static int obs(const char *role, const char *op, const char *result, const char *extra)
+{
+    char tname[64];
+
+    type_name(tname, sizeof tname);
+    printf(&quot;CORDON-OBS client role=%s type=%s op=%s result=%s%s%s\n&quot;, role, tname, op, result,
+           (extra != NULL &amp;&amp; extra[0] != &#x27;\0&#x27;) ? &quot; &quot; : &quot;&quot;,
+           (extra != NULL &amp;&amp; extra[0] != &#x27;\0&#x27;) ? extra : &quot;&quot;);
+    fflush(stdout);
+    return (strcmp(result, &quot;OK&quot;) == 0) ? 0 : 1;
+}
+
+static int do_status(const char *role, const char *path)
+{
+    char buf[512];
+    ssize_t n;
+    int fd = open(path, O_RDONLY);
+    char extra[560];
+
+    if (fd &lt; 0) {
+        snprintf(extra, sizeof extra, &quot;errno=%d(%s)&quot;, errno, strerror(errno));
+        return obs(role, &quot;status&quot;, &quot;ERR&quot;, extra);
+    }
+    n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n &lt;= 0) {
+        snprintf(extra, sizeof extra, &quot;errno=%d(%s)&quot;, errno, strerror(errno));
+        return obs(role, &quot;status&quot;, &quot;ERR&quot;, extra);
+    }
+    buf[n] = &#x27;\0&#x27;;
+    while (n &gt; 0 &amp;&amp; (buf[n - 1] == &#x27;\n&#x27; || buf[n - 1] == &#x27;\r&#x27;)) {
+        buf[--n] = &#x27;\0&#x27;;
+    }
+    snprintf(extra, sizeof extra, &quot;status=%s&quot;, buf);
+    return obs(role, &quot;status&quot;, &quot;OK&quot;, extra);
+}
+
+static int do_write(const char *role, const char *path, const char *text)
+{
+    char extra[320];
+    int fd = open(path, O_WRONLY);
+    ssize_t n;
+
+    if (fd &lt; 0) {
+        snprintf(extra, sizeof extra, &quot;errno=%d(%s)&quot;, errno, strerror(errno));
+        return obs(role, &quot;write&quot;, &quot;ERR&quot;, extra);
+    }
+    n = write(fd, text, strlen(text));
+    if (n &lt; 0) {
+        snprintf(extra, sizeof extra, &quot;errno=%d(%s)&quot;, errno, strerror(errno));
+        close(fd);
+        return obs(role, &quot;write&quot;, &quot;ERR&quot;, extra);
+    }
+    close(fd);
+    snprintf(extra, sizeof extra, &quot;bytes=%ld&quot;, (long)n);
+    return obs(role, &quot;write&quot;, &quot;OK&quot;, extra);
+}
+
+static int do_open(const char *role, const char *path)
+{
+    char extra[160];
+    int fd = open(path, O_WRONLY);
+
+    if (fd &lt; 0) {
+        snprintf(extra, sizeof extra, &quot;errno=%d(%s)&quot;, errno, strerror(errno));
+        return obs(role, &quot;open&quot;, &quot;ERR&quot;, extra);
+    }
+    close(fd);
+    return obs(role, &quot;open&quot;, &quot;OK&quot;, &quot;&quot;);
+}
+
+int main(int argc, char *argv[])
+{
+    const char *path = CORDON_PATH;
+    const char *role = &quot;client&quot;;
+    const char *op;
+    const char *text = &quot;zone=main state=sealed&quot;;
+    int opt;
+
+    (void)secpol_open(NULL, SECPOL_USE_AS_DEFAULT);
+
+    while ((opt = getopt(argc, argv, &quot;p:r:w:&quot;)) != -1) {
+        switch (opt) {
+        case &#x27;p&#x27;:
+            path = optarg;
+            break;
+        case &#x27;r&#x27;:
+            role = optarg;
+            break;
+        case &#x27;w&#x27;:
+            text = optarg;
+            break;
+        default:
+            fprintf(stderr, &quot;usage: %s [-p path] [-r role] [-w text] status|write|open\n&quot;,
+                    argv[0]);
+            return 2;
+        }
+    }
+    if (optind &gt;= argc) {
+        fprintf(stderr, &quot;usage: %s [-p path] [-r role] [-w text] status|write|open\n&quot;, argv[0]);
         return 2;
     }
-    if (strcmp(argv[1], &quot;status&quot;) == 0) {
-        fd = open(&quot;/dev/cordon&quot;, O_RDONLY);
-        if (fd &lt; 0) {
-            printf(&quot;CORDON-OBS client op=status result=ERR errno=%d\n&quot;, errno);
-            return 1;
-        }
-        n = read(fd, buf, sizeof buf - 1);
-        if (n &lt; 0) {
-            printf(&quot;CORDON-OBS client op=status result=ERR errno=%d\n&quot;, errno);
-            return 1;
-        }
-        buf[n] = &#x27;\0&#x27;;
-        printf(&quot;CORDON-OBS client op=status result=OK status=%s&quot;, buf);
-        close(fd);
-        return 0;
+    op = argv[optind];
+
+    if (strcmp(op, &quot;status&quot;) == 0) {
+        return do_status(role, path);
     }
-    if (strcmp(argv[1], &quot;write&quot;) == 0) {
-        fd = open(&quot;/dev/cordon&quot;, O_WRONLY);
-        if (fd &lt; 0) {
-            printf(&quot;CORDON-OBS client op=open result=ERR errno=%d\n&quot;, errno);
-            return 1;
-        }
-        if (write(fd, &quot;zone=main&quot;, 9) &lt; 0) {
-            printf(&quot;CORDON-OBS client op=write result=ERR errno=%d\n&quot;, errno);
-            return 1;
-        }
-        printf(&quot;CORDON-OBS client op=write result=OK\n&quot;);
-        close(fd);
-        return 0;
+    if (strcmp(op, &quot;write&quot;) == 0) {
+        return do_write(role, path, text);
     }
+    if (strcmp(op, &quot;open&quot;) == 0) {
+        return do_open(role, path);
+    }
+    fprintf(stderr, &quot;unknown operation: %s\n&quot;, op);
     return 2;
 }</code></pre>
-<p>Build it on the host; the image carries it as <code>cordon-client</code>, and the two operations are <code>status</code> and <code>write</code>:</p>
-<pre><code class="language-bash">qcc -Wall -Wextra -O1 -o build/cordon-client client.c</code></pre>
-<p>The status read returns the service pid and the event count. The write adds one event. Until the policy step, nothing is secured: any process that can open the path can write to it. The boot image step runs both operations from the console, so you see the answer for each.</p>
-</section>
-<section id="add-a-security-policy">
-<h2>Add a Security Policy</h2>
-<p class="duration">Estimated time: 12:00</p>
-<p><code>secpol</code> decides access in the kernel and in the service. A policy file names types, custom permission classes and the rules between them. Save this as <code>cordon.policy</code>.</p>
-<pre><code class="language-text">type cordon_t;
-type cordon_writer_t;
-type cordon_probe_t;
+<p>The second one reads the status in a loop and stays alive until its count runs out. It is the process a death scenario terminates, and it stands in for a screen or a dashboard that consumes the service:</p>
+<pre><code class="language-c">/*
+ * cordon-view. The status consumer of /dev/cordon.
+ *
+ * This is the process the kill-consumer scenario terminates. It is NOT the QNX
+ * Screen graphics service: this image is built with --graphics=no and has no
+ * screen, so a small consumer stands in for the console/status surface that a
+ * real system would show. docs/design.md section 1 says so explicitly.
+ *
+ * It reads the guarded service status repeatedly so that its death is a
+ * meaningful event (a consumer that was talking to the service and then went
+ * away), and never writes. It writes its own pid to a file so that the
+ * scenario runner terminates this process and not a wrapper around it.
+ *
+ * Build: qcc -o cordon-view cordon-view.c -lsecpol
+ */
 
-class cordon { write status };
+#include &lt;errno.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;sys/stat.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
 
-allow_attach cordon_t /dev/cordon;
-allow cordon_t self:ability { spawn };
-allow { cordon_writer_t cordon_probe_t } cordon_t : channel connect;
-allow { cordon_writer_t cordon_probe_t } cordon_t : cordon status;
-allow cordon_writer_t cordon_t : cordon write;</code></pre>
-<p>Three layers are in play:</p>
-<ol><li><code>allow_attach</code> decides which process may put a channel at the path.</li></ol>
-<p>with no rule is refused by the kernel before your code runs.</p>
-<ol><li><code>channel connect</code> decides which type may reach the service at all. A type</li></ol>
-<p>The service asks the policy on every read and write instead of trusting itself.</p>
-<ol><li>The custom class <code>cordon</code> decides the two operations your handlers perform.</li></ol>
-<p>Compile the policy into the build directory the image step copies from:</p>
-<pre><code class="language-bash">secpolcompile -o build/secpol.bin cordon.policy</code></pre>
-<p>At boot the image pushes that file and starts each program under an explicit type. These are the startup lines the image step carries:</p>
-<p>The probe is refused and the writer succeeds. A refusal from the policy check inside the service comes back as <code>errno=13</code> (<code>EACCES</code>). A client type with no connect rule never reaches the service and gets <code>errno=1</code> (<code>EPERM</code>) from the kernel.</p>
-<p>Two details cost time if you miss them:</p>
-<p>written against <code>cordon_t</code>, so the service must resolve that name at startup and pass the number, not 0, to <code>secpol_check_permission</code>. Passing 0 matches nothing and denies every request.</p>
-<ul><li><code>secpol_get_type_id()</code> returns the number your own channel carries. Rules are</li></ul>
-<p>with <code>secpol_transition_type()</code>. A process started with <code>on -T</code> reports 0. The type the service sees arrives in the message it received, so log that.</p>
-<ul><li><code>secpol_type_id()</code> in a client is only accurate for processes that change type</li></ul>
-<p>To make the service consult the policy, add the check to both handlers:</p>
-<pre><code class="language-c">static secpol_permission_t *perm_write;
-static uint32_t object_type;
+#include &lt;secpol/secpol.h&gt;
 
-/* in main, after secpol_open(NULL, SECPOL_USE_AS_DEFAULT) */
-object_type = secpol_get_type_id(NULL, &quot;cordon_t&quot;);
-perm_write = secpol_get_permission(NULL, &quot;cordon&quot;, &quot;write&quot;, 0);
+#define CORDON_PATH &quot;/dev/cordon&quot;
 
-/* in cordon_write, before reading the message */
-if (perm_write == NULL ||
-    secpol_check_permission(&amp;ctp-&gt;info, object_type, perm_write) != 0) {
-    emit(&quot;deny&quot;, &quot;kind=write result=DENY check=EPERM&quot;);
-    return EACCES;
+int main(int argc, char *argv[])
+{
+    const char *path = CORDON_PATH;
+    const char *pidfile = &quot;/dev/shmem/cordon-view.pid&quot;;
+    int ticks = 1000000;
+    int i;
+    int opt;
+    char tname[64];
+    const char *name;
+
+    while ((opt = getopt(argc, argv, &quot;p:n:f:&quot;)) != -1) {
+        switch (opt) {
+        case &#x27;p&#x27;:
+            path = optarg;
+            break;
+        case &#x27;n&#x27;:
+            ticks = atoi(optarg);
+            break;
+        case &#x27;f&#x27;:
+            pidfile = optarg;
+            break;
+        default:
+            fprintf(stderr, &quot;usage: %s [-p path] [-n ticks] [-f pidfile]\n&quot;, argv[0]);
+            return 2;
+        }
+    }
+
+    if (pidfile != NULL) {
+        FILE *pf = fopen(pidfile, &quot;w&quot;);
+        if (pf != NULL) {
+            fprintf(pf, &quot;%d\n&quot;, (int)getpid());
+            fclose(pf);
+        }
+    }
+
+    (void)secpol_open(NULL, SECPOL_USE_AS_DEFAULT);
+    name = secpol_get_type_name(NULL, secpol_type_id());
+    snprintf(tname, sizeof tname, &quot;%s&quot;, name != NULL ? name : &quot;self-unreported&quot;);
+    printf(&quot;CORDON-OBS view role=view type=%s state=up pid=%d path=%s ticks=%d\n&quot;, tname,
+           (int)getpid(), path, ticks);
+    fflush(stdout);
+
+    for (i = 0; i &lt; ticks; i++) {
+        char buf[512];
+        int fd = open(path, O_RDONLY);
+        if (fd &gt;= 0) {
+            ssize_t n = read(fd, buf, sizeof buf - 1);
+            close(fd);
+            if (n &gt; 0) {
+                buf[n] = &#x27;\0&#x27;;
+                while (n &gt; 0 &amp;&amp; (buf[n - 1] == &#x27;\n&#x27; || buf[n - 1] == &#x27;\r&#x27;)) {
+                    buf[--n] = &#x27;\0&#x27;;
+                }
+                printf(&quot;CORDON-OBS view role=view tick=%d status=%s\n&quot;, i, buf);
+                fflush(stdout);
+            } else {
+                printf(&quot;CORDON-OBS view role=view tick=%d result=ERR errno=%d\n&quot;, i, errno);
+                fflush(stdout);
+            }
+        } else {
+            printf(&quot;CORDON-OBS view role=view tick=%d result=ERR errno=%d\n&quot;, i, errno);
+            fflush(stdout);
+        }
+        sleep(1);
+    }
+    printf(&quot;CORDON-OBS view role=view state=done ticks=%d\n&quot;, ticks);
+    fflush(stdout);
+    return 0;
 }</code></pre>
+<p>Neither client decides anything. Each prints <code>CORDON-OBS</code> lines with an operation, a result and, on failure, an errno. The host reads those lines later. The client takes its role name from <code>-r</code> so that two invocations of the same binary are distinguishable in one console log.</p>
 </section>
 <section id="survive-a-process-death">
 <h2>Survive a Process Death</h2>
 <p class="duration">Estimated time: 10:00</p>
-<p>A service that dies takes its path with it. On QNX the High Availability Manager can restart a process, but it is an optional package that a base SDP install does not include. The primitives it drives are in libc, so a supervisor is short: <code>posix_spawn</code>, <code>waitpid</code>, and a sequence number that the service reads at startup.</p>
-<pre><code class="language-c">#include &lt;spawn.h&gt;
+<p>A service that dies takes its path with it. On QNX the High Availability Manager can restart a process, but it is an optional package that a base SDP install does not include. The primitives a HAM rule drives are in libc, so a supervisor is short:</p>
+<pre><code class="language-c">/*
+ * cordon-supervise. Watches the guarded service and starts it again when it
+ * dies.
+ *
+ * Why this file exists instead of a HAM rule: HAM (the QNX high availability
+ * manager) is an optional package in the QNX 8.0 repository
+ * (com.qnx.qnx800.target.os_services.ham) but it is not part of the baseline
+ * that was installed here, and installing it needs myQNX package-mirror
+ * authorization: the install path answers HTTP 401 without credentials, while
+ * the baseline install itself did not include ham, libham or the headers.
+ * So the restart half of claim C4 is implemented with facilities that are
+ * present in the baseline: posix_spawn, waitpid, and slog2, which are the same
+ * primitives a HAM rule would drive. docs/design.md section 8 records this,
+ * together with what enabling a real HAM entity would take.
+ *
+ * The supervisor is not a resource manager. It starts the guarded service as
+ * its child, so the child inherits the supervisor&#x27;s security type, and only a
+ * process of that type is allowed to attach /dev/cordon.
+ *
+ * Build: qcc -o cordon-supervise cordon-supervise.c -lsecpol
+ */
+
+#include &lt;errno.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;signal.h&gt;
 #include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/stat.h&gt;
 #include &lt;sys/wait.h&gt;
 #include &lt;unistd.h&gt;
 
+#include &lt;spawn.h&gt;
+#include &lt;sys/slog2.h&gt;
+
+#include &lt;secpol/secpol.h&gt;
+
 extern char **environ;
 
-int main(int argc, char **argv)
+#define CORDON_LOG &quot;/data/var/cordon/events.log&quot;
+
+static slog2_buffer_t slog_buf = NULL;
+static int event_fd = -1;
+static const char *log_path = CORDON_LOG;
+
+static void emit(const char *what, const char *detail)
 {
-    int seq = 0, max = 4;
-
-    while (seq &lt; max) {
-        pid_t pid;
-        int status = 0;
-        int signal = 0;
-        char number[16];
-        char *args[] = { argv[1], &quot;-r&quot;, number, NULL };
-
-        seq++;
-        snprintf(number, sizeof number, &quot;%d&quot;, seq);
-        if (posix_spawn(&amp;pid, argv[1], NULL, NULL, args, environ) != 0) {
-            printf(&quot;CORDON-OBS supervise spawn=ERR seq=%d\n&quot;, seq);
-            return 1;
-        }
-        printf(&quot;CORDON-OBS supervise spawn seq=%d pid=%d\n&quot;, seq, (int)pid);
-        fflush(stdout);
-        waitpid(pid, &amp;status, 0);
-        if (WIFSIGNALED(status)) {
-            signal = WTERMSIG(status);
-        }
-        printf(&quot;CORDON-OBS supervise exit seq=%d signal=%d\n&quot;, seq, signal);
-        fflush(stdout);
-        printf(&quot;CORDON-OBS supervise respawn next_seq=%d\n&quot;, seq + 1);
-        fflush(stdout);
+    printf(&quot;CORDON-OBS supervise %s %s\n&quot;, what, detail);
+    fflush(stdout);
+    if (slog_buf != NULL) {
+        slog2f(slog_buf, 0, SLOG2_INFO, &quot;cordon-supervise %s %s&quot;, what, detail);
     }
+    if (event_fd &gt;= 0) {
+        int n = snprintf(NULL, 0, &quot;supervise %s %s\n&quot;, what, detail);
+        char *line = malloc((size_t)n + 1);
+        if (line != NULL) {
+            snprintf(line, (size_t)n + 1, &quot;supervise %s %s\n&quot;, what, detail);
+            if (write(event_fd, line, (size_t)n) &lt; 0) {
+                /* the console line above already carries the fact */
+            }
+            free(line);
+        }
+    }
+}
+
+static slog2_buffer_t slog_open(void)
+{
+    slog2_buffer_set_config_t cfg;
+    slog2_buffer_t handle = NULL;
+
+    memset(&amp;cfg, 0, sizeof cfg);
+    cfg.num_buffers = 1;
+    cfg.buffer_set_name = &quot;cordon-supervise&quot;;
+    cfg.verbosity_level = SLOG2_INFO;
+    cfg.buffer_config[0].buffer_name = &quot;supervise&quot;;
+    cfg.buffer_config[0].num_pages = 2;
+    if (slog2_register(&amp;cfg, &amp;handle, 0) != 0) {
+        return NULL;
+    }
+    return handle;
+}
+
+static void log_open(void)
+{
+    const char *slash = strrchr(log_path, &#x27;/&#x27;);
+    if (slash != NULL &amp;&amp; slash != log_path) {
+        char dir[256];
+        size_t len = (size_t)(slash - log_path);
+        if (len &lt; sizeof dir) {
+            memcpy(dir, log_path, len);
+            dir[len] = &#x27;\0&#x27;;
+            mkdir(dir, 0755);
+        }
+    }
+    event_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+}
+
+int main(int argc, char *argv[])
+{
+    const char *service = &quot;/proc/boot/cordon&quot;;
+    const char *path = &quot;/dev/cordon&quot;;
+    const char *zone = &quot;zone-main&quot;;
+    int max_restarts = 5;
+    int seq;
+    int opt;
+    char detail[320];
+
+    while ((opt = getopt(argc, argv, &quot;s:p:e:n:m:&quot;)) != -1) {
+        switch (opt) {
+        case &#x27;s&#x27;:
+            service = optarg;
+            break;
+        case &#x27;p&#x27;:
+            path = optarg;
+            break;
+        case &#x27;e&#x27;:
+            log_path = optarg;
+            break;
+        case &#x27;n&#x27;:
+            zone = optarg;
+            break;
+        case &#x27;m&#x27;:
+            max_restarts = atoi(optarg);
+            break;
+        default:
+            fprintf(stderr,
+                    &quot;usage: %s [-s service] [-p path] [-e eventlog] [-n zone] [-m max]\n&quot;,
+                    argv[0]);
+            return 2;
+        }
+    }
+
+    slog_buf = slog_open();
+    log_open();
+    (void)secpol_open(NULL, SECPOL_USE_AS_DEFAULT);
+    {
+        const char *self_type = secpol_get_type_name(NULL, secpol_type_id());
+        snprintf(detail, sizeof detail, &quot;kind=up pid=%d service=%s max_restarts=%d type=%s&quot;,
+                 (int)getpid(), service, max_restarts,
+                 self_type != NULL ? self_type : &quot;self-unreported&quot;);
+    }
+    emit(&quot;start&quot;, detail);
+
+    for (seq = 1; seq &lt;= max_restarts; seq++) {
+        char seqarg[16];
+        char *child_argv[11];
+        pid_t pid = -1;
+        int status = 0;
+        int rc;
+
+        snprintf(seqarg, sizeof seqarg, &quot;%d&quot;, seq);
+        child_argv[0] = (char *)service;
+        child_argv[1] = &quot;-p&quot;;
+        child_argv[2] = (char *)path;
+        child_argv[3] = &quot;-e&quot;;
+        child_argv[4] = (char *)log_path;
+        child_argv[5] = &quot;-n&quot;;
+        child_argv[6] = (char *)zone;
+        child_argv[7] = &quot;-r&quot;;
+        child_argv[8] = seqarg;
+        child_argv[9] = NULL;
+        child_argv[10] = NULL;
+
+        rc = posix_spawn(&amp;pid, service, NULL, NULL, child_argv, environ);
+        if (rc != 0) {
+            snprintf(detail, sizeof detail, &quot;kind=spawn seq=%d result=ERR errno=%d&quot;, seq, rc);
+            emit(&quot;spawn&quot;, detail);
+            break;
+        }
+        snprintf(detail, sizeof detail, &quot;kind=spawn seq=%d pid=%d&quot;, seq, (int)pid);
+        emit(&quot;spawn&quot;, detail);
+
+        if (waitpid(pid, &amp;status, 0) &lt; 0) {
+            snprintf(detail, sizeof detail, &quot;kind=exit seq=%d result=ERR errno=%d&quot;, seq, errno);
+            emit(&quot;exit&quot;, detail);
+            break;
+        }
+        snprintf(detail, sizeof detail, &quot;kind=exit seq=%d pid=%d signal=%d code=%d&quot;, seq,
+                 (int)pid, WIFSIGNALED(status) ? WTERMSIG(status) : 0,
+                 WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        emit(&quot;exit&quot;, detail);
+
+        if (seq &lt; max_restarts) {
+            snprintf(detail, sizeof detail, &quot;kind=respawn next_seq=%d&quot;, seq + 1);
+            emit(&quot;respawn&quot;, detail);
+        }
+    }
+
+    snprintf(detail, sizeof detail, &quot;kind=stop spawns=%d&quot;, seq - 1 &gt; max_restarts ? max_restarts
+                                                                                  : seq - 1);
+    emit(&quot;stop&quot;, detail);
     return 0;
 }</code></pre>
-<p>Start the service through the supervisor and kill the child from another shell. The console shows the exit, the respawn and a new service start with the next sequence number. The service prints its sequence in the status read, so a client can tell the difference between the service that died and the one that replaced it.</p>
-<pre><code class="language-text">on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &amp;
+<p>The supervisor starts the service with <code>posix_spawn</code> (the service path comes from <code>-s</code>), waits with <code>waitpid</code>, and starts it again when it dies. Each start carries a new sequence number, passed to the service as <code>-r</code>, so a later client can tell the new process from the dead one. The supervisor writes the spawn, the exit and the respawn to slog2 and to the event log, because the guarded service is dead at the moment the restart happens and cannot record it.</p>
+</section>
+<section id="run-the-scenarios-at-the-end-of-startup">
+<h2>Run the Scenarios at the End of Startup</h2>
+<p class="duration">Estimated time: 12:00</p>
+<p>The scenario runner is a shell script that runs on the target after the system is up. It pushes the policy, starts the supervisor, and then performs each scenario in a fixed order, printing one <code>CORDON-OBS</code> line per fact:</p>
+<pre><code class="language-bash">#!/bin/sh
+#
+#
+
+MODE=${1:-normal}
+B=/proc/boot
+LOG=/data/var/cordon
+mkdir -p $LOG
+
+echo &quot;CORDON-G2-START mode=$MODE&quot;
+
+if secpolpush; then
+    echo &quot;CORDON-OBS policy push=OK&quot;
+else
+    echo &quot;CORDON-OBS policy push=ERR&quot;
+fi
+echo &quot;CORDON-OBS policy id=$(secpol -Q 2&gt;/dev/null)&quot;
+for t in cordon_t cordon_writer_t cordon_probe_t cordon_view_t cordon_outsider_t; do
+    echo &quot;CORDON-OBS policy type $t=$(secpol -t $t 2&gt;/dev/null)&quot;
+done
+
+client() {
+    # client &lt;type&gt; &lt;role&gt; [client args...]  e.g. ... -w &quot;text&quot; write
+    type=$1
+    role=$2
+    shift 2
+    on -T &quot;$type&quot; &quot;$B/cordon-client&quot; -r &quot;$role&quot; &quot;$@&quot;
+}
+
+wait_service() {
+    i=0
+    while [ $i -lt 30 ]; do
+        if [ -e /dev/cordon ]; then
+            echo &quot;CORDON-OBS service path=/dev/cordon state=present tries=$i&quot;
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    echo &quot;CORDON-OBS service path=/dev/cordon state=absent tries=$i&quot;
+    return 1
+}
+
+start_service() {
+    on -T cordon_t &quot;$B/cordon-supervise&quot; -s &quot;$B/cordon&quot; -p /dev/cordon \
+        -e &quot;$LOG/events.log&quot; -n zone-main -m 4 &amp;
+    wait_service
+}
+
+field() {
+    # field &lt;name&gt; ; reads one line on stdin and prints the value of key=value.
+    # The guarded service status arrives as one field &quot;status=pid=... seq=...&quot;,
+    # so a leading status= is stripped before the key is compared.
+    awk -v k=&quot;$1&quot; &#x27;{ for (i = 1; i &lt;= NF; i++) {
+        f = $i; sub(/^status=/, &quot;&quot;, f)
+        n = index(f, &quot;=&quot;); if (n &gt; 1) {
+            if (substr(f, 1, n - 1) == k) { print substr(f, n + 1); exit }
+        } } }&#x27;
+}
+
+kill_pid() {
+    # kill_pid &lt;pid&gt; &lt;what&gt; : never call kill with an empty argument
+    if [ -n &quot;$1&quot; ]; then
+        kill -9 &quot;$1&quot; 2&gt;/dev/null
+        echo &quot;CORDON-OBS kill target=$2 pid=$1 result=OK&quot;
+    else
+        echo &quot;CORDON-OBS kill target=$2 pid=none result=ERR reason=no-pid&quot;
+    fi
+}
+
+if [ &quot;$MODE&quot; = &quot;violated&quot; ]; then
+    # The first client runs before the service exists. An image built in this
+    # order must be caught: the client cannot reach the guarded path.
+    echo &quot;CORDON-OBS order check=first-client-before-service attempting=yes&quot;
+    client cordon_view_t order-probe status
+    echo &quot;CORDON-OBS order check=first-client-before-service done=yes&quot;
+    # Then start the service, so the log also shows the image is otherwise
+    # workable and only the order is wrong.
+    start_service
+    client cordon_view_t order-after-start status
+    echo &quot;CORDON-SLOG2-BEGIN&quot;
+    slog2info -S
+    echo &quot;CORDON-SLOG2-END&quot;
+    echo &quot;CORDON-G2-COMPLETE mode=violated&quot;
+    exit 0
+fi
+
+start_service
+
+echo &quot;CORDON-OBS pidin-types-begin&quot;
+pidin -F &quot;%a %N %_&quot; 2&gt;/dev/null | grep -F cordon
+echo &quot;CORDON-OBS pidin-types-end&quot;
+
+echo &quot;CORDON-OBS scenario name=boot-order step=begin&quot;
+client cordon_view_t order-probe status
+echo &quot;CORDON-OBS scenario name=boot-order step=end&quot;
+
+echo &quot;CORDON-OBS scenario name=deny-unprivileged-write step=begin&quot;
+client cordon_probe_t probe -w &quot;zone=main state=probe&quot; write
+client cordon_outsider_t outsider open
+client cordon_view_t deny-after status
+echo &quot;CORDON-OBS scenario name=deny-unprivileged-write step=end&quot;
+
+echo &quot;CORDON-OBS scenario name=allow-privileged-write step=begin&quot;
+client cordon_writer_t writer -w &quot;zone=main state=sealed&quot; write
+client cordon_view_t writer-after status
+echo &quot;CORDON-OBS scenario name=allow-privileged-write step=end&quot;
+
+echo &quot;CORDON-OBS scenario name=kill-consumer step=begin&quot;
+rm -f /dev/shmem/cordon-view.pid
+on -T cordon_view_t &quot;$B/cordon-view&quot; -n 60 -f /dev/shmem/cordon-view.pid &amp;
+i=0
+viewpid=
+while [ $i -lt 10 ]; do
+    if [ -s /dev/shmem/cordon-view.pid ]; then
+        viewpid=$(cat /dev/shmem/cordon-view.pid)
+        break
+    fi
+    sleep 1
+    i=$((i + 1))
+done
+if [ -n &quot;$viewpid&quot; ]; then
+    kill_pid &quot;$viewpid&quot; view
+else
+    echo &quot;CORDON-OBS kill target=view pid=none result=ERR reason=no-pidfile&quot;
+fi
 sleep 1
-kill -9 $(pidin -F &quot;%N %p&quot; | awk &#x27;/cordon$/ {print $2}&#x27;)
-on -T cordon_writer_t /proc/boot/cordon-client status</code></pre>
+if kill -0 &quot;$viewpid&quot; 2&gt;/dev/null; then
+    echo &quot;CORDON-OBS view pid=$viewpid state=alive&quot;
+else
+    echo &quot;CORDON-OBS view pid=$viewpid state=gone&quot;
+fi
+client cordon_view_t view-after status
+echo &quot;CORDON-OBS scenario name=kill-consumer step=end&quot;
+
+echo &quot;CORDON-OBS scenario name=supervised-restart step=begin&quot;
+st=$(client cordon_view_t pre-kill status)
+echo &quot;$st&quot;
+svcpid=$(echo &quot;$st&quot; | field pid)
+seq0=$(echo &quot;$st&quot; | field seq)
+kill_pid &quot;$svcpid&quot; service
+i=0
+while [ $i -lt 10 ]; do
+    sleep 1
+    st2=$(client cordon_view_t post-kill status)
+    echo &quot;$st2&quot;
+    seq1=$(echo &quot;$st2&quot; | field seq)
+    if [ -n &quot;$seq1&quot; ] &amp;&amp; [ &quot;$seq1&quot; != &quot;0&quot; ] &amp;&amp; [ &quot;$seq1&quot; != &quot;$seq0&quot; ]; then
+        break
+    fi
+    i=$((i + 1))
+done
+client cordon_view_t restart-after status
+echo &quot;CORDON-OBS scenario name=supervised-restart step=end&quot;
+
+echo &quot;CORDON-EVENTS-BEGIN&quot;
+cat &quot;$LOG/events.log&quot; 2&gt;/dev/null
+echo &quot;CORDON-EVENTS-END&quot;
+echo &quot;CORDON-SLOG2-BEGIN&quot;
+slog2info -S
+echo &quot;CORDON-SLOG2-END&quot;
+echo &quot;CORDON-G2-COMPLETE mode=normal&quot;
+exit 0</code></pre>
+<p>Read it with the rule set in mind. The script never says whether a scenario succeeded; it records what each attempt produced, and the host applies the rule. Every process the scenarios depend on is started with <code>on -T</code>, so it carries the type the policy expects even though the policy is pushed at run time rather than by the boot script.</p>
 </section>
-<section id="put-it-in-the-boot-image">
-<h2>Put It in the Boot Image</h2>
+<section id="put-both-images-together">
+<h2>Put Both Images Together</h2>
+<p class="duration">Estimated time: 12:00</p>
+<p>Two images are built from the same sources with the same policy. The only difference is the startup order: one starts the service before its first client, the other starts the first client before the service. That difference is what makes the order check meaningful.</p>
+<pre><code class="language-bash">#!/bin/bash
+#
+#
+#
+#
+set -uo pipefail
+
+MODE=${1:-normal}
+case &quot;$MODE&quot; in
+    normal|violated) ;;
+    *) echo &quot;usage: $0 [normal|violated] [--ifs-only]&quot; &gt;&amp;2; exit 2 ;;
+esac
+IFS_ONLY=0
+[ &quot;${2:-}&quot; = &quot;--ifs-only&quot; ] &amp;&amp; IFS_ONLY=1
+
+ROOT=$(cd &quot;$(dirname &quot;$0&quot;)/../.&quot; &amp;&amp; pwd)          # build/cordon/target
+CORDON=$(cd &quot;$ROOT/..&quot; &amp;&amp; pwd)                    # build/cordon
+if [ -z &quot;${SDP:-}&quot; ]; then
+    if [ -n &quot;${QNX_HOST:-}&quot; ]; then
+        SDP=$(cd &quot;$QNX_HOST/../../..&quot; &amp;&amp; pwd)
+    else
+        SDP=/workspace/qnx-env/qnx800
+    fi
+fi
+WORK=${WORK:-$CORDON/out/work-$MODE}
+BUILD=$ROOT/build
+OUT=$CORDON/out/g2-$MODE
+
+set +u
+. &quot;$SDP/qnxsdp-env.sh&quot; &gt;/dev/null 2&gt;&amp;1
+set -u
+if [ -d /workspace/qnx-env/bin ]; then
+    export PATH=/workspace/qnx-env/bin:$PATH
+fi
+if [ -d /workspace/qnx-env/tmp ]; then
+    export TMPDIR=/workspace/qnx-env/tmp
+fi
+
+echo &quot;== compile&quot;
+CC_ARGS=&quot;-Wall -Wextra -O1&quot;
+qcc $CC_ARGS -o &quot;$BUILD/cordon&quot;           &quot;$ROOT/resmgr/cordon.c&quot;             -lsecpol -lslog2 || exit 3
+qcc $CC_ARGS -o &quot;$BUILD/cordon-supervise&quot; &quot;$ROOT/supervise/cordon-supervise.c&quot; -lsecpol -lslog2 || exit 3
+qcc $CC_ARGS -o &quot;$BUILD/cordon-client&quot;    &quot;$ROOT/client/cordon-client.c&quot;      -lsecpol || exit 3
+qcc $CC_ARGS -o &quot;$BUILD/cordon-view&quot;      &quot;$ROOT/client/cordon-view.c&quot;        -lsecpol || exit 3
+
+echo &quot;== check policy&quot;
+secpolcompile -o &quot;$BUILD/secpol.bin&quot; &quot;$ROOT/secpol/cordon.policy&quot; || exit 4
+
+echo &quot;== mkqnximage project: $WORK&quot;
+mkdir -p &quot;$WORK/local/snippets&quot;
+cat &gt; &quot;$WORK/local/snippets/ifs_files.custom&quot; &lt;&lt;EOF
+[uid=0 gid=0 perms=0755] /proc/boot/cordon=$BUILD/cordon
+[uid=0 gid=0 perms=0755] /proc/boot/cordon-supervise=$BUILD/cordon-supervise
+[uid=0 gid=0 perms=0755] /proc/boot/cordon-client=$BUILD/cordon-client
+[uid=0 gid=0 perms=0755] /proc/boot/cordon-view=$BUILD/cordon-view
+[uid=0 gid=0 perms=0755] /proc/boot/cordon-boot.sh=$ROOT/boot/cordon-boot.sh
+[uid=0 gid=0 perms=0755] /proc/boot/secpolpush=bin/secpolpush
+[uid=0 gid=0 perms=0755] /proc/boot/secpol=bin/secpol
+EOF
+
+cat &gt; &quot;$WORK/local/snippets/post_start.custom&quot; &lt;&lt;EOF
+/proc/boot/cordon-boot.sh $MODE
+EOF
+
+: &gt; &quot;$WORK/local/snippets/ifs_start.custom&quot;
+: &gt; &quot;$WORK/local/snippets/system_files.custom&quot;
+
+KEYDIR=&quot;$WORK/local/misc_files&quot;
+mkdir -p &quot;$KEYDIR&quot;
+if [ ! -s &quot;$KEYDIR/ssh_host_rsa_key&quot; ]; then
+    openssl genrsa -traditional -out &quot;$KEYDIR/ssh_host_rsa_key&quot; 2048 2&gt;/dev/null || \
+        echo &quot;warning: no RSA host key generated; first boot will be slower&quot; &gt;&amp;2
+    chmod 600 &quot;$KEYDIR/ssh_host_rsa_key&quot; 2&gt;/dev/null || true
+fi
+cat &gt; &quot;$WORK/local/snippets/data_files.custom&quot; &lt;&lt;EOF
+[uid=15 gid=15 perms=400] var/ssh/ssh_host_rsa_key=$KEYDIR/ssh_host_rsa_key
+EOF
+
+echo &quot;== mkqnximage --build ($MODE)&quot;
+cd &quot;$WORK&quot; || exit 5
+mkdir -p output
+if [ &quot;$IFS_ONLY&quot; = 1 ]; then
+    # Fast path while iterating: rebuild only the IFS from the build file
+    # mkqnximage already generated. The disk image stays byte-identical.
+    mkifs output/build/ifs.build output/ifs.bin || exit 6
+else
+    mkqnximage --build --force --noprompt \
+        --proc=procnto-smp-instr \
+        --policy=&quot;$ROOT/secpol/cordon.policy&quot; \
+        --hostname=cordon-g2 || exit 6
+fi
+
+mkdir -p &quot;$OUT&quot;
+cp output/ifs.bin output/disk-qemu &quot;$OUT/&quot;
+{
+    echo &quot;mode: $MODE&quot;
+    echo &quot;built: $(date -u +%Y-%m-%dT%H:%M:%SZ)&quot;
+    echo &quot;sdp: $SDP&quot;
+    echo &quot;policy: target/secpol/cordon.policy sha256 $(sha256sum &quot;$ROOT/secpol/cordon.policy&quot; | cut -d&#x27; &#x27; -f1)&quot;
+    echo &quot;binaries:&quot;
+    for b in cordon cordon-supervise cordon-client cordon-view; do
+        echo &quot;  $b $(sha256sum &quot;$BUILD/$b&quot; | cut -d&#x27; &#x27; -f1) $(stat -c %s &quot;$BUILD/$b&quot;) bytes&quot;
+    done
+    echo &quot;images:&quot;
+    echo &quot;  ifs.bin $(sha256sum &quot;$OUT/ifs.bin&quot; | cut -d&#x27; &#x27; -f1) $(stat -c %s &quot;$OUT/ifs.bin&quot;) bytes&quot;
+    echo &quot;  disk-qemu $(sha256sum &quot;$OUT/disk-qemu&quot; | cut -d&#x27; &#x27; -f1) $(stat -c %s &quot;$OUT/disk-qemu&quot;) bytes&quot;
+} &gt; &quot;$OUT/build-record.txt&quot;
+
+echo &quot;--- $OUT/build-record.txt&quot;
+cat &quot;$OUT/build-record.txt&quot;</code></pre>
+<p>Build both images:</p>
+<pre><code class="language-bash">SDP=${QNX_HOST%/host/*} make images</code></pre>
+<p><code>make images</code> calls the script twice and writes <code>out/g2-normal</code> and <code>out/g2-violated</code>, each with <code>ifs.bin</code>, <code>disk-qemu</code> and a <code>build-record.txt</code> that lists the sha256 of every binary and image. If <code>QNX_HOST</code> is not set the script falls back to <code>/workspace/qnx-env/qnx800</code>, which is where the SDP lives on the machine this codelab was written on; set <code>SDP</code> to your own install when it lives somewhere else.</p>
+</section>
+<section id="capture-both-consoles-and-judge-them">
+<h2>Capture Both Consoles and Judge Them</h2>
 <p class="duration">Estimated time: 10:00</p>
-<p>Now move the pieces into the image so a boot produces the whole run. Copy the stock project twice, add the payload to each image file list, and write the startup lines into each project&#x27;s <code>local/snippets/post_start.custom</code>.</p>
-<pre><code class="language-bash">LAB=$HOME/cordon-lab
-SDP_TARGET=${QNX_TARGET:?source qnxsdp-env.sh first}/x86_64
-cd $LAB
-cp -r base normal
-cp -r base broken
-for d in normal broken; do
-  for f in cordon cordon-client cordon-supervise; do
-    echo &quot;[uid=0 gid=0 perms=0755] /proc/boot/$f=$LAB/build/$f&quot; &gt;&gt; $d/local/snippets/ifs_files.custom
-  done
-  echo &quot;[uid=0 gid=0 perms=0755] /proc/boot/secpol.bin=$LAB/build/secpol.bin&quot; &gt;&gt; $d/local/snippets/ifs_files.custom
-  echo &quot;[uid=0 gid=0 perms=0755] /proc/boot/secpolpush=$SDP_TARGET/bin/secpolpush&quot; &gt;&gt; $d/local/snippets/ifs_files.custom
-  echo &quot;[uid=0 gid=0 perms=0755] /proc/boot/secpol=$SDP_TARGET/bin/secpol&quot; &gt;&gt; $d/local/snippets/ifs_files.custom
-done</code></pre>
-<p>The startup lines for the normal image. It pushes the policy, starts the supervisor, waits for the path, and runs the clients in a fixed order:</p>
-<pre><code class="language-bash">cat &gt;&gt; normal/local/snippets/post_start.custom &lt;&lt;&#x27;EOF&#x27;
-secpolpush
-on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &amp;
-while [ ! -e /dev/cordon ]; do sleep 1; done
-on -T cordon_probe_t /proc/boot/cordon-client write
-on -T cordon_writer_t /proc/boot/cordon-client write
-echo CORDON-NORMAL-COMPLETE
-EOF</code></pre>
-<p>The second image differs only in the order: the first client runs before the service exists.</p>
-<pre><code class="language-bash">cat &gt;&gt; broken/local/snippets/post_start.custom &lt;&lt;&#x27;EOF&#x27;
-secpolpush
-on -T cordon_probe_t /proc/boot/cordon-client write
-echo CORDON-BROKEN-FIRST-CLIENT
-on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &amp;
-while [ ! -e /dev/cordon ]; do sleep 1; done
-on -T cordon_writer_t /proc/boot/cordon-client write
-echo CORDON-BROKEN-COMPLETE
-EOF</code></pre>
-<p>Build both, then boot them the same way you booted the stock image, pointing at each <code>output/</code>:</p>
-<pre><code class="language-bash">cd $LAB/normal &amp;&amp; mkqnximage --build --force --noprompt
-cd $LAB/broken &amp;&amp; mkqnximage --build --force --noprompt</code></pre>
-<p>Both images boot. In the broken image the first client fails with <code>errno=2</code> (<code>ENOENT</code>) because <code>/dev/cordon</code> is not there yet, and the same client succeeds after the service starts. That failure is the evidence that the order matters. An image that starts the service first must never show it.</p>
-</section>
-<section id="judge-the-image-from-the-host">
-<h2>Judge the Image From the Host</h2>
-<p class="duration">Estimated time: 6:00</p>
-<p>The target prints facts. The host decides. A gate reads the observations from a serial console, applies a rule per scenario, and returns one exit code. The companion repository for this codelab carries such a gate; clone it beside your lab and point it at the two logs:</p>
-<pre><code class="language-bash">git clone https://github.com/luke-shin-ai/cordon.git
-host/cordon run --console-normal normal-console.log \
-  --console-negative broken-console.log --out run --gate
-host/cordon bundle run bundle</code></pre>
-<p><code>cordon gate</code> exits 0 only when every scenario matched its expectation, including the negative control, which must FAIL. Anything else exits 1 and names the scenario that disagreed.</p>
+<p>Boot each image and keep the console. <code>tee</code> is the capture command, and the file it writes is the input the host gate reads:</p>
+<pre><code class="language-bash">mkdir -p ~/cordon-lab/capture
+cd ~/cordon-lab/capture
+
+qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
+  -drive file=/path/to/cordon/out/g2-normal/disk-qemu,format=raw,if=ide \
+  -kernel /path/to/cordon/out/g2-normal/ifs.bin 2&gt;&amp;1 | tee normal-console.log
+
+qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
+  -drive file=/path/to/cordon/out/g2-violated/disk-qemu,format=raw,if=ide \
+  -kernel /path/to/cordon/out/g2-violated/ifs.bin 2&gt;&amp;1 | tee violated-console.log</code></pre>
+<p>Each boot ends with <code>CORDON-G2-COMPLETE</code> on the console. Leave QEMU with <code>Ctrl-a</code> then <code>x</code>; the log already holds the whole run. On a host without KVM the boot runs under pure software emulation, so give it time before you decide that it has hung.</p>
+<p>Now judge both logs on the host. The gate applies one rule per scenario to the <code>CORDON-OBS</code> lines and writes a bundle:</p>
+<pre><code class="language-bash">cd /path/to/cordon
+host/cordon run --console-normal ~/cordon-lab/capture/normal-console.log \
+  --console-negative ~/cordon-lab/capture/violated-console.log \
+  --out out/g2-run --gate
+host/cordon bundle out/g2-run out/g2-bundle
+host/cordon claims out/g2-bundle</code></pre>
+<p><code>cordon gate</code> exits 0 when every scenario carries the result its claim expects, including the negative control, which the ledger expects to fail. Anything else exits 1 and names the scenario that disagreed. The bundle holds the five evidence files: <code>scenarios.json</code>, <code>console.log</code>, <code>slog2.txt</code>, <code>image.json</code> and <code>sources.json</code>.</p>
 <p>The last piece is the release note. A draft can come from a template or from a language model; both go through the same verifier, which checks every sentence against the bundle and deletes the ones the evidence does not support:</p>
-<pre><code class="language-bash">host/cordon note bundle --out note</code></pre>
-<p>A sentence that names a scenario the run did not produce, quotes a hash that is not in the image record, or reports a pass where the bundle recorded a fail is removed and listed in <code>dropped.md</code>. A sentence that states a performance result rejects the whole note, because the non-commercial license restricts publishing evaluation results.</p>
+<pre><code class="language-bash">host/cordon note out/g2-bundle --out out/g2-note</code></pre>
+<p>A sentence that names a scenario the run did not produce, quotes a hash that is not in the image record, or states a result the bundle does not carry is removed and listed in <code>dropped.md</code>. A sentence that states a performance result rejects the whole note, because the non-commercial license restricts publishing evaluation results.</p>
 </section>
 <section id="clean-up">
 <h2>Clean Up</h2>
 <p class="duration">Estimated time: 2:00</p>
-<p>Stop the supervisor and the service, and remove the lab images when you are done:</p>
-<pre><code class="language-bash">kill $(pidin -F &quot;%N %p&quot; | awk &#x27;/cordon/ {print $2}&#x27;)
-rm -rf ~/cordon-lab</code></pre>
-<p>If you pushed a policy and want the system back to its default behaviour, reboot the guest. The policy lives in the kernel until the next boot.</p>
+<p>Remove the lab images and the capture when you are done:</p>
+<pre><code class="language-bash">rm -rf ~/cordon-lab</code></pre>
+<p>If you pushed a policy inside a running guest and want the system back to its default behaviour, stop QEMU. The policy lives in the kernel until the next boot.</p>
 </section>
 <section id="what-next">
 <h2>What Next</h2>
 <p class="duration">Estimated time: 2:00</p>
-<p>You now have the four pieces that most QNX services need: a path, a policy, a supervisor and a boot image. Three directions to take it further:</p>
+<p>You now have the four pieces that most QNX services need: a path, a policy, a supervisor and a boot image, plus a host gate that reads the console instead of trusting the target. Three directions to take it further:</p>
 <p>permission class, so one policy file expresses per-zone access.</p>
 <ul><li>Add a second guarded path in a different zone and give each zone its own</li></ul>
 <p>installed, and keep the same observation lines so the gate does not change.</p>
 <ul><li>Replace the supervisor with a HAM entity once the optional package is</li></ul>
-<p>and check that the event log never records a partial record.</p>
-<ul><li>Add a scenario that covers a client that is killed in the middle of a write,</li></ul>
+<p>check that the event log never records a partial record.</p>
+<ul><li>Add a scenario that covers a client killed in the middle of a write, and</li></ul>
 </section>
 </article>
 </main>
