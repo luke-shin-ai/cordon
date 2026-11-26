@@ -6,8 +6,8 @@ Written 2026-11-26, revised the same day after the first run on QNX 8.0. Section
 ## 1. Scenario contract
 
 Six scenarios. Each one is a target-side action plus the observations it must
-produce. The target asserts nothing: it prints one line per fact and
-`host/cordon run` applies the rules below to those lines. A scenario's result is
+produce. The target prints one line per fact, and `host/cordon run` applies the
+rules below to those lines. A scenario's result is
 one of two values, and there is no partial credit and no score.
 
 | Scenario | Precondition | Action | Rule |
