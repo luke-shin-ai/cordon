@@ -375,6 +375,8 @@ int main(int argc, char **argv)
 
     while (seq < max) {
         pid_t pid;
+        int status = 0;
+        int signal = 0;
         char number[16];
         char *args[] = { argv[1], "-r", number, NULL };
 
@@ -386,8 +388,11 @@ int main(int argc, char **argv)
         }
         printf("CORDON-OBS supervise spawn seq=%d pid=%d\n", seq, (int)pid);
         fflush(stdout);
-        waitpid(pid, NULL, 0);
-        printf("CORDON-OBS supervise exit seq=%d signal=%d\n", seq, WTERMSIG(0));
+        waitpid(pid, &status, 0);
+        if (WIFSIGNALED(status)) {
+            signal = WTERMSIG(status);
+        }
+        printf("CORDON-OBS supervise exit seq=%d signal=%d\n", seq, signal);
         fflush(stdout);
         printf("CORDON-OBS supervise respawn next_seq=%d\n", seq + 1);
         fflush(stdout);
@@ -443,9 +448,12 @@ the order matters. An image that starts the service first must never show it.
 Duration: 6:00
 
 The target prints facts. The host decides. A gate reads the observations from a
-serial console, applies a rule per scenario, and returns one exit code.
+serial console, applies a rule per scenario, and returns one exit code. The
+companion repository for this codelab carries such a gate; clone it beside your
+lab and point it at the two logs:
 
 ```bash
+git clone https://github.com/luke-shin-ai/cordon.git
 host/cordon run --console-normal normal-console.log \
   --console-negative broken-console.log --out run --gate
 host/cordon bundle run bundle
