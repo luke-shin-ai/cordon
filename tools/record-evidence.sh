@@ -35,6 +35,9 @@ if [ -z "${SDP:-}" ]; then
 fi
 
 mkdir -p "$EVIDENCE/build" "$EVIDENCE/run"
+if [ -d /workspace/qnx-env/bin ]; then
+    export PATH=/workspace/qnx-env/bin:$PATH
+fi
 
 # ------------------------------------------------------------------ environment
 {
@@ -49,11 +52,20 @@ mkdir -p "$EVIDENCE/build" "$EVIDENCE/run"
     echo "\$ qcc -V"
     qcc -V 2>&1
     echo
-    echo "\$ mkqnximage --help (first line of the usage block)"
-    mkqnximage --help 2>&1 | sed -n '1,3p'
+    echo "\$ command -v qcc mkqnximage secpolcompile qemu-system-x86_64"
+    command -v qcc mkqnximage secpolcompile qemu-system-x86_64 2>&1
     echo
-    echo "\$ qemu-system-x86_64 --version"
-    qemu-system-x86_64 --version 2>&1 | head -2
+    echo "mkqnximage build logs: evidence/build/mkqnximage-normal.txt and"
+    echo "evidence/build/mkqnximage-violated.txt"
+    echo
+    if command -v qemu-system-x86_64 >/dev/null 2>&1; then
+        echo "\$ qemu-system-x86_64 --version"
+        qemu-system-x86_64 --version 2>&1 | head -2
+    else
+        echo "qemu-system-x86_64: not installed on the build host. The guests run"
+        echo "on a separate boot host, whose emulator and exact boot command are"
+        echo "copied from the console headers at the end of this file."
+    fi
 } > "$EVIDENCE/build/environment.txt" 2>&1
 
 # ------------------------------------------------------------------ cross build

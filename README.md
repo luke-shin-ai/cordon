@@ -108,7 +108,7 @@ and runs on QNX 8.0, without publishing any evaluation result:
 
 | Path | Content |
 |---|---|
-| `evidence/build/environment.txt` | SDP version, host toolchain, `qcc -V`, `mkqnximage` and QEMU versions |
+| `evidence/build/environment.txt` | SDP and host toolchain paths, `qcc -V`, and the boot host and emulator that ran the images |
 | `evidence/build/qcc.txt` | the four `qcc` cross builds and `secpolcompile`, with arguments and exit codes |
 | `evidence/build/mkqnximage-normal.txt`, `-violated.txt` | the two image builds, with the mkqnximage arguments and exit codes |
 | `evidence/build/image.json` | sha256 and size of every `ifs.bin` and `disk-qemu`, the QNX version string, and the commit they were built from |

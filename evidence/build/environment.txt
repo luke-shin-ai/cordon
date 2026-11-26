@@ -1,4 +1,4 @@
-recorded: 2026-11-26T09:34:59Z
+recorded: 2026-11-26T09:53:33Z
 host: Linux 6.12.118-guest-1.1 x86_64
 sdp: /workspace/qnx-env/qnx800
 qnx_target: /workspace/qnx-env/qnx800/target/qnx
@@ -13,10 +13,14 @@ cc: targets available in /workspace/qnx-env/qnx800/host/linux/x86_64/etc/qcc:
 	12.2.0,gcc_ntoaarch64le_cxx
 	12.2.0,gcc_ntoaarch64le
 
-$ mkqnximage --help (first line of the usage block)
-/workspace/qnx-env/qnx800/host/linux/x86_64/../../common/mkqnximage/opt_scripts/opt_sshd_pregen: line 73: which: command not found
+$ command -v qcc mkqnximage secpolcompile qemu-system-x86_64
+/workspace/qnx-env/qnx800/host/linux/x86_64/usr/bin/qcc
+/workspace/qnx-env/qnx800/host/common/bin/mkqnximage
+/workspace/qnx-env/qnx800/host/linux/x86_64/usr/bin/secpolcompile
 
+mkqnximage build logs: evidence/build/mkqnximage-normal.txt and
+evidence/build/mkqnximage-violated.txt
 
-
-$ qemu-system-x86_64 --version
-tools/record-evidence.sh: line 56: qemu-system-x86_64: command not found
+qemu-system-x86_64: not installed on the build host. The guests run
+on a separate boot host, whose emulator and exact boot command are
+copied from the console headers at the end of this file.
