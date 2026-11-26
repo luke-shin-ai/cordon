@@ -49,11 +49,29 @@ parsing text.
 
 ## 4. AI layer rule
 
-The AI layer drafts a release note from `scenarios.json` only. A deterministic
-checker then deletes any sentence whose claim cannot be matched to a scenario
-record (process name, file path, or verdict). Sentences that survive keep the
-scenario id. This is the only place a model is used, and it cannot invent a
-pass.
+The AI layer drafts a release note from the bundle only. The drafter is a
+template by default, so the same bundle always produces the same text; an
+optional provider can send the bundle facts to a language model instead, and
+the answer goes through the same check.
+
+A deterministic verifier then reads the draft sentence by sentence. Every
+checkable claim in a sentence must be present in the bundle and must agree with
+it:
+
+- a scenario name and the PASS or FAIL it states, against `scenarios.json`
+- a claim id, against `claims.yaml` and the scenario it names
+- a sha256, against `image.json` and the console
+- a commit, against `sources.json`
+- an errno, a policy id or a version string, against the console and slog2 dump
+- a count of scenarios, claims, files or images, against the bundle
+
+A sentence with no checkable claim at all is deleted, because the note may not
+say what the evidence cannot support. A sentence that states a measurement, a
+rate or a share of a whole rejects the whole note, because the license does not
+allow publishing evaluation results. Surviving sentences keep the claim id they
+were checked against, and every deletion is listed with its reason in
+`dropped.md`. The verifier never adds a sentence: the drafter, model or not,
+cannot invent a pass.
 
 ## 5. Guaranteed and not guaranteed
 
