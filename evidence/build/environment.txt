@@ -1,4 +1,4 @@
-recorded: 2026-11-26T09:53:33Z
+recorded: 2026-11-26T09:53:51Z
 host: Linux 6.12.118-guest-1.1 x86_64
 sdp: /workspace/qnx-env/qnx800
 qnx_target: /workspace/qnx-env/qnx800/target/qnx
@@ -24,3 +24,11 @@ evidence/build/mkqnximage-violated.txt
 qemu-system-x86_64: not installed on the build host. The guests run
 on a separate boot host, whose emulator and exact boot command are
 copied from the console headers at the end of this file.
+
+boot host and emulator, copied from the console headers:
+# host: instance-20261113-084844 / Linux 6.12.116+deb13-cloud-amd64
+# qemu: QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+# cmd: qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic -drive file=normal-disk-qemu,format=raw,if=ide -kernel normal-ifs.bin
+# host: instance-20261113-084844 / Linux 6.12.116+deb13-cloud-amd64
+# qemu: QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)
+# cmd: qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic -drive file=violated-disk-qemu,format=raw,if=ide -kernel violated-ifs.bin

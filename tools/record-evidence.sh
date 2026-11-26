@@ -125,6 +125,12 @@ if [ -n "${CONSOLE_DIR:-}" ] && [ -d "${CONSOLE_DIR:-}" ]; then
     done
 fi
 
+{
+    echo
+    echo "boot host and emulator, copied from the console headers:"
+    grep -h -E "^# (host|qemu|cmd):" "$EVIDENCE"/run/console-*.log 2>/dev/null
+} >> "$EVIDENCE/build/environment.txt"
+
 python3 - "$EVIDENCE" <<'PY'
 import hashlib
 import json
