@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build a Guarded Device Node on QNX 8.0 and Verify It Under QEMU</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html">All codelabs</a></nav>
+<main>
+<header class="meta">
+<p class="summary">Write a resource manager at /dev/cordon, protect it with a secpol policy, keep it alive with a supervisor, boot the result in QEMU, and judge the image from the host with a pass or fail gate.</p>
+<table>
+<tr><th>Categories</th><td>System Services, Security</td></tr>
+<tr><th>Level</th><td>intermediate</td></tr>
+<tr><th>Platforms</th><td>QEMU</td></tr>
+<tr><th>Published</th><td>2026-11-26</td></tr>
+<tr><th>Author</th><td>ILSOON SHIN</td></tr>
+</table>
+</header>
+<article>
+<h1>Build a Guarded Device Node on QNX 8.0 and Verify It Under QEMU</h1>
+<section id="overview">
+<h2>Overview</h2>
+<p class="duration">Estimated time: 3:00</p>
+<p>In this codelab you build a small but complete QNX 8.0 service that owns one path in the pathname space, <code>/dev/cordon</code>. Four things are wired together:</p>
+<ul><li>a resource manager that answers a status read and records write events</li></ul>
+<ul><li>a security policy that decides which process may read and which may write</li></ul>
+<ul><li>a supervisor that starts the service again after it dies</li></ul>
+<ul><li>a boot image plus a host gate that turns the run into PASS or FAIL</li></ul>
+<p>The point is not the service itself. The point is the last step: an image is released only when every check the verifier expects has a recorded verdict. Nothing in this codelab measures time, rate or resource use. Every decision is a true or false question: did the answer arrive, which errno came back, did the sequence number change.</p>
+<h3>What you&#x27;ll need</h3>
+<p>license covers this: <a href="https://qnx.software/en/developers/get-started/qnx-everywhere">QNX Everywhere</a>.</p>
+<ul><li>A QNX Software Development Platform 8.0 install. A free non-commercial</li></ul>
+<ul><li>A Linux host. The QNX 8.0 host toolchain does not run on macOS.</li></ul>
+<p>provides after you source <code>qnxsdp-env.sh</code>.</p>
+<ul><li><code>qcc</code>, <code>mkqnximage</code> and <code>secpolcompile</code> on <code>PATH</code>, which the SDP install</li></ul>
+<ul><li><code>qemu-system-x86_64</code> on the host. No target hardware is needed.</li></ul>
+<p>console is the only output channel used here.</p>
+<ul><li>A shell where you can run the image in the foreground. The guest serial</li></ul>
+<h3>Check the toolchain</h3>
+<pre><code class="language-bash">source ~/qnx800/qnxsdp-env.sh
+qcc -V
+which mkqnximage secpolcompile
+qemu-system-x86_64 --version</code></pre>
+<p><code>qcc -V</code> prints the target list. The default target for this codelab is <code>gcc_ntox86_64</code>, which matches the QEMU x86_64 image you build in the next step.</p>
+</section>
+<section id="build-and-boot-a-qnx-8-0-image">
+<h2>Build and Boot a QNX 8.0 Image</h2>
+<p class="duration">Estimated time: 8:00</p>
+<p><code>mkqnximage</code> is part of the SDP and builds a bootable QEMU image from your own file list. Make a project directory and build the stock image once, before adding anything of your own, so you know the base is good.</p>
+<pre><code class="language-bash">mkdir -p ~/cordon-lab &amp;&amp; cd ~/cordon-lab
+mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/base</code></pre>
+<p>The build writes <code>ifs.bin</code> and <code>disk-qemu</code> next to a <code>build</code> directory. Boot it with the IFS passed as the kernel:</p>
+<pre><code class="language-bash">qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
+  -drive file=$PWD/base/disk-qemu,format=raw,if=ide \
+  -kernel $PWD/base/ifs.bin</code></pre>
+<p>Two details matter on QEMU. Without <code>-cpu max</code> the QNX kernel may stop early on a CPUID check and print nothing. The image is a multiboot IFS, so pass it with <code>-kernel</code> and also attach the disk.</p>
+<p>You are in when the console prints a QNX banner and <code>Startup complete</code>, and the guest shell answers:</p>
+<pre><code class="language-bash">uname -a</code></pre>
+<p>Keep this shell open. Every command in the next steps runs either on this guest or on the host beside it.</p>
+</section>
+<section id="write-the-resource-manager">
+<h2>Write the Resource Manager</h2>
+<p class="duration">Estimated time: 12:00</p>
+<p>A QNX resource manager registers a path, then receives messages for it. The kernel routes a client&#x27;s <code>open</code>, <code>read</code> and <code>write</code> to your handlers. Save this as <code>cordon.c</code> on the host.</p>
+<pre><code class="language-c">#include &lt;errno.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/dispatch.h&gt;
+#include &lt;sys/iofunc.h&gt;
+#include &lt;sys/resmgr.h&gt;
+#include &lt;sys/slog2.h&gt;
+
+static iofunc_attr_t attr;
+static int events;
+static char status[256];
+
+/* One line per fact. The host decides what the line means. */
+static void emit(const char *kind, const char *detail)
+{
+    printf(&quot;CORDON-OBS service=%s %s\n&quot;, kind, detail);
+    fflush(stdout);
+}
+
+static int cordon_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb)
+{
+    iofunc_ocb_t *o = (iofunc_ocb_t *)ocb;
+    int n;
+
+    if (iofunc_read_verify(ctp, msg, ocb, NULL) != EOK) {
+        return EACCES;
+    }
+    n = snprintf(status, sizeof status, &quot;pid=%d events=%d\n&quot;, (int)getpid(), events);
+    if (o-&gt;offset &gt;= n) {
+        _IO_SET_READ_NBYTES(ctp, 0);
+        return _RESMGR_NPARTS(0);
+    }
+    SETIOV(ctp-&gt;iov, status + o-&gt;offset, n - o-&gt;offset);
+    _IO_SET_READ_NBYTES(ctp, n - o-&gt;offset);
+    o-&gt;offset = n;
+    return _RESMGR_NPARTS(1);
+}
+
+static int cordon_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb)
+{
+    char record[128];
+    int n = msg-&gt;i.nbytes;
+
+    if (iofunc_write_verify(ctp, msg, ocb, NULL) != EOK) {
+        return EACCES;
+    }
+    if (n &lt;= 0 || n &gt;= (int)sizeof record) {
+        return EINVAL;
+    }
+    if (resmgr_msgread(ctp, record, n, sizeof msg-&gt;i) != n) {
+        return EFAULT;
+    }
+    record[n] = &#x27;\0&#x27;;
+    events++;
+    emit(&quot;accept&quot;, record);
+    _IO_SET_WRITE_NBYTES(ctp, msg-&gt;i.nbytes);
+    return _RESMGR_NPARTS(0);
+}
+
+int main(void)
+{
+    dispatch_t *dpp;
+    resmgr_attr_t rattr;
+    resmgr_connect_funcs_t connect;
+    resmgr_io_funcs_t io;
+    dispatch_context_t *ctp;
+
+    dpp = dispatch_create();
+    memset(&amp;rattr, 0, sizeof rattr);
+    rattr.nparts_max = 1;
+    rattr.msg_max_size = 2048;
+    iofunc_func_init(_RESMGR_CONNECT_NFUNCS, &amp;connect, _RESMGR_IO_NFUNCS, &amp;io);
+    iofunc_attr_init(&amp;attr, S_IFCHR | 0666, NULL, NULL);
+    io.read = cordon_read;
+    io.write = cordon_write;
+
+    if (resmgr_attach(dpp, &amp;rattr, &quot;/dev/cordon&quot;, _FTYPE_ANY, 0,
+                      &amp;connect, &amp;io, &amp;attr) == -1) {
+        perror(&quot;resmgr_attach&quot;);
+        return 1;
+    }
+    emit(&quot;up&quot;, &quot;path=/dev/cordon&quot;);
+
+    ctp = dispatch_context_alloc(dpp);
+    for (;;) {
+        ctp = dispatch_block(ctp);
+        if (ctp == NULL) {
+            break;
+        }
+        dispatch_handler(ctp);
+    }
+    return 0;
+}</code></pre>
+<p>Build it for the target and copy it into the image directory you will grow in a later step:</p>
+<pre><code class="language-bash">qcc -Wall -Wextra -O1 -o build/cordon cordon.c</code></pre>
+<p><code>resmgr_attach</code> is the call that makes <code>/dev/cordon</code> appear. <code>iofunc_read_verify</code> and <code>iofunc_write_verify</code> apply the default permission model; the policy step replaces that default with an explicit question to secpol.</p>
+<p>Run it on the guest for now:</p>
+<pre><code class="language-bash">/proc/boot/cordon &amp;
+ls -l /dev/cordon</code></pre>
+</section>
+<section id="talk-to-the-node-from-a-client">
+<h2>Talk to the Node From a Client</h2>
+<p class="duration">Estimated time: 6:00</p>
+<p>A tiny client makes the two operations visible. Save it as <code>client.c</code>.</p>
+<pre><code class="language-c">#include &lt;errno.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;unistd.h&gt;
+
+int main(int argc, char **argv)
+{
+    char buf[256];
+    int fd, n;
+
+    if (argc &lt; 2) {
+        return 2;
+    }
+    if (strcmp(argv[1], &quot;status&quot;) == 0) {
+        fd = open(&quot;/dev/cordon&quot;, O_RDONLY);
+        if (fd &lt; 0) {
+            printf(&quot;CORDON-OBS client op=status result=ERR errno=%d\n&quot;, errno);
+            return 1;
+        }
+        n = read(fd, buf, sizeof buf - 1);
+        if (n &lt; 0) {
+            printf(&quot;CORDON-OBS client op=status result=ERR errno=%d\n&quot;, errno);
+            return 1;
+        }
+        buf[n] = &#x27;\0&#x27;;
+        printf(&quot;CORDON-OBS client op=status result=OK status=%s&quot;, buf);
+        close(fd);
+        return 0;
+    }
+    if (strcmp(argv[1], &quot;write&quot;) == 0) {
+        fd = open(&quot;/dev/cordon&quot;, O_WRONLY);
+        if (fd &lt; 0) {
+            printf(&quot;CORDON-OBS client op=open result=ERR errno=%d\n&quot;, errno);
+            return 1;
+        }
+        if (write(fd, &quot;zone=main&quot;, 9) &lt; 0) {
+            printf(&quot;CORDON-OBS client op=write result=ERR errno=%d\n&quot;, errno);
+            return 1;
+        }
+        printf(&quot;CORDON-OBS client op=write result=OK\n&quot;);
+        close(fd);
+        return 0;
+    }
+    return 2;
+}</code></pre>
+<p>Build and try both operations:</p>
+<pre><code class="language-bash">qcc -Wall -Wextra -O1 -o build/cordon-client client.c
+./build/cordon-client status
+./build/cordon-client write</code></pre>
+<p>The status read returns the service pid and the event count. The write adds one event. Nothing has been secured yet: any process that can open the path can write to it. That is what the next step changes.</p>
+</section>
+<section id="add-a-security-policy">
+<h2>Add a Security Policy</h2>
+<p class="duration">Estimated time: 12:00</p>
+<p><code>secpol</code> decides access in the kernel and in the service. A policy file names types, custom permission classes and the rules between them. Save this as <code>cordon.policy</code>.</p>
+<pre><code class="language-text">type cordon_t;
+type cordon_writer_t;
+type cordon_probe_t;
+
+class cordon { write status };
+
+allow_attach cordon_t /dev/cordon;
+allow cordon_t self:ability { spawn };
+allow { cordon_writer_t cordon_probe_t } cordon_t : channel connect;
+allow { cordon_writer_t cordon_probe_t } cordon_t : cordon status;
+allow cordon_writer_t cordon_t : cordon write;</code></pre>
+<p>Three layers are in play:</p>
+<ol><li><code>allow_attach</code> decides which process may put a channel at the path.</li></ol>
+<p>with no rule is refused by the kernel before your code runs.</p>
+<ol><li><code>channel connect</code> decides which type may reach the service at all. A type</li></ol>
+<p>The service asks the policy on every read and write instead of trusting itself.</p>
+<ol><li>The custom class <code>cordon</code> decides the two operations your handlers perform.</li></ol>
+<p>Compile and push the policy, then start the service and the clients with an explicit type:</p>
+<pre><code class="language-bash">secpolcompile -o secpol.bin cordon.policy
+secpolpush
+secpol -Q
+on -T cordon_t ./build/cordon &amp;
+on -T cordon_probe_t ./build/cordon-client write
+on -T cordon_writer_t ./build/cordon-client write</code></pre>
+<p>The probe is refused and the writer succeeds. A refusal from the policy check inside the service comes back as <code>errno=13</code> (<code>EACCES</code>). A client type with no connect rule never reaches the service and gets <code>errno=1</code> (<code>EPERM</code>) from the kernel.</p>
+<p>Two details cost time if you miss them:</p>
+<p>written against <code>cordon_t</code>, so the service must resolve that name at startup and pass the number, not 0, to <code>secpol_check_permission</code>. Passing 0 matches nothing and denies every request.</p>
+<ul><li><code>secpol_get_type_id()</code> returns the number your own channel carries. Rules are</li></ul>
+<p>with <code>secpol_transition_type()</code>. A process started with <code>on -T</code> reports 0. The type the service sees arrives in the message it received, so log that.</p>
+<ul><li><code>secpol_type_id()</code> in a client is only accurate for processes that change type</li></ul>
+<p>To make the service consult the policy, add the check to both handlers:</p>
+<pre><code class="language-c">static secpol_permission_t *perm_write;
+static uint32_t object_type;
+
+/* in main, after secpol_open(NULL, SECPOL_USE_AS_DEFAULT) */
+object_type = secpol_get_type_id(NULL, &quot;cordon_t&quot;);
+perm_write = secpol_get_permission(NULL, &quot;cordon&quot;, &quot;write&quot;, 0);
+
+/* in cordon_write, before reading the message */
+if (perm_write == NULL ||
+    secpol_check_permission(&amp;ctp-&gt;info, object_type, perm_write) != 0) {
+    emit(&quot;deny&quot;, &quot;kind=write result=DENY check=EPERM&quot;);
+    return EACCES;
+}</code></pre>
+</section>
+<section id="survive-a-process-death">
+<h2>Survive a Process Death</h2>
+<p class="duration">Estimated time: 10:00</p>
+<p>A service that dies takes its path with it. On QNX the High Availability Manager can restart a process, but it is an optional package that a base SDP install does not include. The primitives it drives are in libc, so a supervisor is short: <code>posix_spawn</code>, <code>waitpid</code>, and a sequence number that the service reads at startup.</p>
+<pre><code class="language-c">#include &lt;spawn.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;sys/wait.h&gt;
+#include &lt;unistd.h&gt;
+
+extern char **environ;
+
+int main(int argc, char **argv)
+{
+    int seq = 0, max = 4;
+
+    while (seq &lt; max) {
+        pid_t pid;
+        int status = 0;
+        int signal = 0;
+        char number[16];
+        char *args[] = { argv[1], &quot;-r&quot;, number, NULL };
+
+        seq++;
+        snprintf(number, sizeof number, &quot;%d&quot;, seq);
+        if (posix_spawn(&amp;pid, argv[1], NULL, NULL, args, environ) != 0) {
+            printf(&quot;CORDON-OBS supervise spawn=ERR seq=%d\n&quot;, seq);
+            return 1;
+        }
+        printf(&quot;CORDON-OBS supervise spawn seq=%d pid=%d\n&quot;, seq, (int)pid);
+        fflush(stdout);
+        waitpid(pid, &amp;status, 0);
+        if (WIFSIGNALED(status)) {
+            signal = WTERMSIG(status);
+        }
+        printf(&quot;CORDON-OBS supervise exit seq=%d signal=%d\n&quot;, seq, signal);
+        fflush(stdout);
+        printf(&quot;CORDON-OBS supervise respawn next_seq=%d\n&quot;, seq + 1);
+        fflush(stdout);
+    }
+    return 0;
+}</code></pre>
+<p>Start the service through the supervisor and kill the child from another shell. The console shows the exit, the respawn and a new service start with the next sequence number. The service prints its sequence in the status read, so a client can tell the difference between the service that died and the one that replaced it.</p>
+<pre><code class="language-bash">on -T cordon_t ./build/cordon-supervise ./build/cordon &amp;
+sleep 1
+kill -9 $(pidin -F &quot;%N %p&quot; | awk &#x27;/cordon$/ {print $2}&#x27;)
+./build/cordon-client status</code></pre>
+</section>
+<section id="put-it-in-the-boot-image">
+<h2>Put It in the Boot Image</h2>
+<p class="duration">Estimated time: 10:00</p>
+<p>Now move the pieces into the image so a boot produces the whole run. Add a startup snippet that pushes the policy, starts the supervisor, waits for the path, and runs the clients in a fixed order.</p>
+<pre><code class="language-text">secpolpush
+on -T cordon_t /proc/boot/cordon-supervise /proc/boot/cordon &amp;
+while [ ! -e /dev/cordon ]; do sleep 1; done
+on -T cordon_probe_t /proc/boot/cordon-client write
+on -T cordon_writer_t /proc/boot/cordon-client write
+echo CORDON-G2-COMPLETE</code></pre>
+<p>Build two images from the same sources. The only difference is the order: in the second one the first client runs before the service exists.</p>
+<pre><code class="language-bash">mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/normal   --post_startup=normal.sh
+mkqnximage --type=qemu --arch=x86_64 --build_dir=$PWD/broken   --post_startup=broken.sh</code></pre>
+<p>Both images boot. In the broken image the first client fails with <code>errno=2</code> (<code>ENOENT</code>) because <code>/dev/cordon</code> is not there yet, and the same client succeeds after the service starts. That failure is the evidence that the order matters. An image that starts the service first must never show it.</p>
+</section>
+<section id="judge-the-image-from-the-host">
+<h2>Judge the Image From the Host</h2>
+<p class="duration">Estimated time: 6:00</p>
+<p>The target prints facts. The host decides. A gate reads the observations from a serial console, applies a rule per scenario, and returns one exit code. The companion repository for this codelab carries such a gate; clone it beside your lab and point it at the two logs:</p>
+<pre><code class="language-bash">git clone https://github.com/luke-shin-ai/cordon.git
+host/cordon run --console-normal normal-console.log \
+  --console-negative broken-console.log --out run --gate
+host/cordon bundle run bundle</code></pre>
+<p><code>cordon gate</code> exits 0 only when every scenario matched its expectation, including the negative control, which must FAIL. Anything else exits 1 and names the scenario that disagreed.</p>
+<p>The last piece is the release note. A draft can come from a template or from a language model; both go through the same verifier, which checks every sentence against the bundle and deletes the ones the evidence does not support:</p>
+<pre><code class="language-bash">host/cordon note bundle --out note</code></pre>
+<p>A sentence that names a scenario the run did not produce, quotes a hash that is not in the image record, or reports a pass where the bundle recorded a fail is removed and listed in <code>dropped.md</code>. A sentence that states a performance result rejects the whole note, because the non-commercial license restricts publishing evaluation results.</p>
+</section>
+<section id="clean-up">
+<h2>Clean Up</h2>
+<p class="duration">Estimated time: 2:00</p>
+<p>Stop the supervisor and the service, and remove the lab images when you are done:</p>
+<pre><code class="language-bash">kill $(pidin -F &quot;%N %p&quot; | awk &#x27;/cordon/ {print $2}&#x27;)
+rm -rf ~/cordon-lab</code></pre>
+<p>If you pushed a policy and want the system back to its default behaviour, reboot the guest. The policy lives in the kernel until the next boot.</p>
+</section>
+<section id="what-next">
+<h2>What Next</h2>
+<p class="duration">Estimated time: 2:00</p>
+<p>You now have the four pieces that most QNX services need: a path, a policy, a supervisor and a boot image. Three directions to take it further:</p>
+<p>permission class, so one policy file expresses per-zone access.</p>
+<ul><li>Add a second guarded path in a different zone and give each zone its own</li></ul>
+<p>installed, and keep the same observation lines so the gate does not change.</p>
+<ul><li>Replace the supervisor with a HAM entity once the optional package is</li></ul>
+<p>and check that the event log never records a partial record.</p>
+<ul><li>Add a scenario that covers a client that is killed in the middle of a write,</li></ul>
+</section>
+</article>
+</main>
+<footer><p>Built with the QNX codelabs metadata format.</p></footer>
+</body>
+</html>
