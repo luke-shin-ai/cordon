@@ -24,7 +24,7 @@ the image matches a written rule set. Four pieces are wired together:
 - a supervisor that starts the service again after it dies
 - a boot image, a console capture, and a host gate that applies the rules
 
-Every code listing in this codelab is taken from the companion repository
+Every program, policy and script listing in this codelab is taken from the companion repository
 `https://github.com/luke-shin-ai/cordon` at render time, so the listing and the
 files in the repository are the same text. Nothing here measures time, rate or
 resource use, and the host tool reports its result and leaves the publishing
