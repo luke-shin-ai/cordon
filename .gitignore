@@ -9,3 +9,4 @@ target/boot/kernel/
 target/boot/*.ifs
 target/boot/*.mb
 target/boot/hello/hello
+codelab/site/

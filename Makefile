@@ -3,21 +3,30 @@
 
 PYTHON ?= python3
 
-.PHONY: help host-test host-claims target images clean
+.PHONY: help host-test host-claims target images codelab check clean
 
 help:
-	@echo "make host-test     run the gate and judging rule tests (no QNX needed)"
+	@echo "make host-test     run the gate, judging, note and codelab tests (no QNX needed)"
 	@echo "make host-claims   print the claim ledger"
+	@echo "make note          print a release note draft for a bundle (BUNDLE=dir)"
 	@echo "make target        cross build the four target binaries with qcc"
 	@echo "make images        build the normal and the misordered QNX image"
+	@echo "make codelab       validate the codelab and render it into codelab/site"
+	@echo "make check         run the seven release checks (tools/checks.sh)"
 	@echo "make clean         remove build output"
 
 host-test:
 	$(PYTHON) tests/test_gate.py
 	$(PYTHON) tests/test_run.py
+	$(PYTHON) tests/test_note.py
+	$(PYTHON) tests/test_codelab.py
 
 host-claims:
 	$(PYTHON) host/cordon claims
+
+note:
+	@if [ -z "$(BUNDLE)" ]; then echo "usage: make note BUNDLE=<evidence dir>"; exit 2; fi
+	$(PYTHON) host/cordon note $(BUNDLE) --out $(BUNDLE)/note
 
 target:
 	@if [ -z "$$QNX_TARGET" ]; then \
@@ -36,5 +45,12 @@ images: target
 	target/boot/build-g2-image.sh normal
 	target/boot/build-g2-image.sh violated
 
+codelab:
+	$(PYTHON) codelab/render.py --check
+	$(PYTHON) codelab/render.py --out codelab/site
+
+check:
+	sh tools/checks.sh
+
 clean:
-	rm -rf target/build out
+	rm -rf target/build out codelab/site

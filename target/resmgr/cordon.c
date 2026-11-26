@@ -11,8 +11,8 @@
  * without policies.
  *
  * Evidence lines go to three places: the serial console, slog2, and the event
- * log file on the writable data partition. Nothing here measures time,
- * throughput or resource use; see docs/design.md section 5.
+ * log file on the writable data partition. Nothing here measures time, rate
+ * or resource use; see docs/design.md section 5.
  *
  * Build: qcc -o cordon cordon.c -lsecpol
  */

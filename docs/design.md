@@ -18,7 +18,7 @@ is exactly `PASS` or `FAIL`. There is no partial credit and no score.
 | allow-privileged-write | normal image booted | the permitted client writes to /dev/cordon | the write succeeds and the service event count goes up with the record |
 | ham-restart | normal image booted | terminate the guarded service | a new service process answers with a higher sequence number, and the supervisor recorded the respawn |
 | boot-order-violation | image built with the client before the service | boot | the image **earns FAIL**: the first client finds no service, and the same client succeeds once the service starts |
-| all-pass | normal image booted | the startup-order check plus the four scenarios above | all five PASS, and the gate returns PASS |
+| all-pass | normal image booted | the startup-order check plus each positive scenario above | all five PASS, and the gate returns PASS |
 
 The negative scenario is inverted on purpose: its verdict is the verdict that
 image earned, so a misordered image records FAIL. `cordon gate` expects FAIL
@@ -61,8 +61,8 @@ Guaranteed by a PASS bundle: the six scenarios above were executed on the image
 whose hashes are in `image.json`, and their observations were as stated.
 
 Not guaranteed: that the image is correct outside these six scenarios, that it
-meets any safety certification, or anything about latency, throughput or
-resource usage. The license for the QNX non-commercial toolchain restricts
+meets any safety certification, or anything about speed, rate or
+resource use. The license for the QNX non-commercial toolchain restricts
 publishing the results of performance or functional evaluation (section 4.6(i)),
 so no such numbers appear in this repository, in the submission text or in the
 video. Timestamps in a slog2 dump are event labels, not measurements.

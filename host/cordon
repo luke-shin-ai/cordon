@@ -9,6 +9,10 @@ Commands
                                judge console logs captured earlier, without booting
   gate <bundle>                PASS when every scenario matches its expectation, else FAIL
   bundle <dir> [out]           collect a run directory into one evidence bundle
+  note <bundle> [--out <dir>] [--draft <file>] [--provider template|proxy]
+                               draft a release note from the bundle, then check
+                               every sentence of it against the bundle and
+                               delete the ones the evidence does not support
 
 `run` does not decide anything by itself in the target: the target prints one
 CORDON-OBS line per fact and nothing else, and this command applies the rules
@@ -32,6 +36,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CLAIMS = ROOT / "claims.yaml"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import cordon_notes  # noqa: E402  (sibling module, same directory)
 
 POSITIVE = [
     "kill-screen",
@@ -546,12 +553,87 @@ def cmd_run(argv: list[str]) -> int:
     return 0
 
 
+def cmd_note(argv: list[str]) -> int:
+    bundle_dir = None
+    out_dir = None
+    draft_file = None
+    provider = "template"
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--out":
+            i += 1
+            out_dir = Path(argv[i])
+        elif a == "--draft":
+            i += 1
+            draft_file = Path(argv[i])
+        elif a == "--provider":
+            i += 1
+            provider = argv[i]
+        elif bundle_dir is None:
+            bundle_dir = Path(a)
+        else:
+            print(f"unexpected argument: {a}", file=sys.stderr)
+            return 2
+        i += 1
+    if bundle_dir is None:
+        print("usage: cordon note <bundle> [--out <dir>] [--draft <file>] "
+              "[--provider template|proxy]", file=sys.stderr)
+        return 2
+    try:
+        bundle = cordon_notes.load_bundle(bundle_dir, CLAIMS)
+    except (cordon_notes.BundleError, ValueError) as exc:
+        print(f"note: {exc}", file=sys.stderr)
+        return 2
+
+    if draft_file is not None:
+        if not draft_file.exists():
+            print(f"note: no such draft: {draft_file}", file=sys.stderr)
+            return 2
+        draft = draft_file.read_text(encoding="utf-8", errors="replace")
+        source = f"draft:{draft_file}"
+    elif provider == "template":
+        draft = cordon_notes.draft(bundle)
+        source = "template"
+    elif provider == "proxy":
+        try:
+            draft = cordon_notes.proxy_draft(bundle)
+        except (cordon_notes.BundleError, OSError, KeyError) as exc:
+            print(f"note: proxy provider failed: {exc}", file=sys.stderr)
+            return 2
+        source = "proxy"
+    else:
+        print(f"note: unknown provider: {provider}", file=sys.stderr)
+        return 2
+
+    report = cordon_notes.verify(draft, bundle)
+    report["source"] = source
+    out = out_dir or (Path(bundle_dir) / "note")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "draft.md").write_text(draft, encoding="utf-8")
+    (out / "note.md").write_text(cordon_notes.rebuild(draft, report), encoding="utf-8")
+    (out / "dropped.md").write_text(cordon_notes.dropped_report(report), encoding="utf-8")
+    (out / "verify.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    for unit in report["units"]:
+        mark = "KEEP" if unit["kept"] else "DROP"
+        first = unit["defects"][0]["detail"] if unit["defects"] else "ok"
+        text = unit["text"]
+        if len(text) > 72:
+            text = text[:69] + "..."
+        print(f"  {mark}  line {unit['line']:<3} {text}  [{first}]")
+    print(f"NOTE: {report['outcome']} kept={report['kept']} dropped={report['dropped']} "
+          f"rejected={report['rejected']} out={out}")
+    return 0 if report["outcome"] == "VERIFIED" else 1
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] in ("-h", "--help"):
         print(__doc__.strip())
         return 0 if len(argv) > 1 else 2
     command, rest = argv[1], argv[2:]
-    table = {"claims": cmd_claims, "gate": cmd_gate, "bundle": cmd_bundle, "run": cmd_run}
+    table = {"claims": cmd_claims, "gate": cmd_gate, "bundle": cmd_bundle,
+             "run": cmd_run, "note": cmd_note}
     if command not in table:
         print(f"unknown command: {command}", file=sys.stderr)
         return 2
