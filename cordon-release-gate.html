@@ -66,7 +66,7 @@ mkqnximage --type=qemu --arch=x86_64 --hostname=cordon --noprompt</code></pre>
 <section id="write-the-security-policy">
 <h2>Write the Security Policy</h2>
 <p class="duration">Estimated time: 10:00</p>
-<p><code>secpol</code> decides access in the kernel and in the service. A policy file names types, custom permission classes and the rules between them. The service comes first in this codelab because its code asks the policy for a decision, and the policy is what gives those names a meaning.</p>
+<p><code>secpol</code> decides access in the kernel and in the service. A policy file names types, custom permission classes and the rules between them. The policy comes first in this codelab because the service code asks it for a decision, and the policy is what gives those names a meaning.</p>
 <pre><code class="language-text">#
 #
 #
@@ -1210,7 +1210,7 @@ qemu-system-x86_64 -cpu max -m 384 -snapshot -nographic \
   -drive file=/path/to/cordon/out/g2-violated/disk-qemu,format=raw,if=ide \
   -kernel /path/to/cordon/out/g2-violated/ifs.bin 2&gt;&amp;1 | tee violated-console.log</code></pre>
 <p>Each boot ends with <code>CORDON-G2-COMPLETE</code> on the console. Leave QEMU with <code>Ctrl-a</code> then <code>x</code>; the log already holds the whole run. On a host without KVM the boot runs under pure software emulation, so give it time before you decide that it has hung.</p>
-<p>Now judge both logs on the host. The gate applies one rule per scenario to the <code>CORDON-OBS</code> lines and writes a bundle:</p>
+<p>Now judge both logs on the host. <code>cordon run</code> applies one rule per scenario to the <code>CORDON-OBS</code> lines and writes a run directory, and <code>cordon bundle</code> copies the five evidence files out of it:</p>
 <pre><code class="language-bash">cd /path/to/cordon
 host/cordon run --console-normal ~/cordon-lab/capture/normal-console.log \
   --console-negative ~/cordon-lab/capture/violated-console.log \

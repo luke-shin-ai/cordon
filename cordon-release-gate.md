@@ -98,8 +98,8 @@ target one way: it is added to the boot image on the host, and it runs from
 Duration: 10:00
 
 `secpol` decides access in the kernel and in the service. A policy file names
-types, custom permission classes and the rules between them. The service comes
-first in this codelab because its code asks the policy for a decision, and the
+types, custom permission classes and the rules between them. The policy comes
+first in this codelab because the service code asks it for a decision, and the
 policy is what gives those names a meaning.
 
 ```text
@@ -1420,8 +1420,9 @@ Each boot ends with `CORDON-G2-COMPLETE` on the console. Leave QEMU with
 the boot runs under pure software emulation, so give it time before you decide
 that it has hung.
 
-Now judge both logs on the host. The gate applies one rule per scenario to the
-`CORDON-OBS` lines and writes a bundle:
+Now judge both logs on the host. `cordon run` applies one rule per scenario to
+the `CORDON-OBS` lines and writes a run directory, and `cordon bundle` copies
+the five evidence files out of it:
 
 ```bash
 cd /path/to/cordon
