@@ -1,28 +1,46 @@
 #!/usr/bin/env python3
-"""Cordon host CLI, skeleton.
+"""Cordon host CLI.
 
 Commands
-  claims [bundle]      list the claim ledger, or compare it with a bundle
-  run <image>          execute the six scenarios on a QNX target (not implemented)
-  gate <bundle>        PASS when every scenario matches its expectation, else FAIL
-  bundle <dir> [out]   collect a run directory into one evidence bundle
+  claims [bundle]              list the claim ledger, or compare it with a bundle
+  run <imageDir> [--negative <imageDir>] [--out <runDir>] [--gate]
+                               boot the image(s), record observations, judge them
+  run --console-normal <log> [--console-negative <log>] [--out <runDir>] [--gate]
+                               judge console logs captured earlier, without booting
+  gate <bundle>                PASS when every scenario matches its expectation, else FAIL
+  bundle <dir> [out]           collect a run directory into one evidence bundle
 
-The gate and bundle commands work on evidence that already exists. The run
-command needs a booted QNX 8.0 target and the SDP toolchain, which the build
-environment does not have yet, so it exits 3 with a message instead of pretending.
+`run` does not decide anything by itself in the target: the target prints one
+CORDON-OBS line per fact and nothing else, and this command applies the rules
+in docs/design.md to those lines. A run needs a way to boot the image, given by
+CORDON_BOOT_CMD (a program called as `CMD <imageDir> <consoleLogPath>`); with
+none set it uses qemu-system-x86_64 locally.
 
-Exit codes: 0 PASS, 1 FAIL, 2 usage or bad input, 3 not implemented.
+Exit codes: 0 PASS or run completed, 1 FAIL or incomplete, 2 usage or bad
+input, 3 boot failed.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CLAIMS = ROOT / "claims.yaml"
+
+POSITIVE = [
+    "kill-screen",
+    "deny-unprivileged-write",
+    "allow-privileged-write",
+    "ham-restart",
+]
+NEGATIVE = "boot-order-violation"
+BOOT_ORDER = "boot-order"
 
 
 def load_claims() -> list[dict]:
@@ -30,6 +48,300 @@ def load_claims() -> list[dict]:
 
     data = yaml.safe_load(CLAIMS.read_text(encoding="utf-8"))
     return data["claims"]
+
+
+# --------------------------------------------------------------------------
+# observation parsing
+# --------------------------------------------------------------------------
+
+OBS_MARK = "CORDON-OBS "
+
+
+def parse_observations(console: str) -> list[dict]:
+    """Turn the target's CORDON-OBS lines into dicts.
+
+    A line is `CORDON-OBS <subject> key=value key=value ...`. Values may contain
+    spaces (a status line is one value), so the raw line is kept as well and
+    specific fields are matched with regular expressions instead of split().
+    """
+    obs = []
+    for raw in console.split("\n"):
+        line = raw.replace("\r", "").strip()
+        idx = line.find(OBS_MARK)
+        if idx < 0:
+            continue
+        body = line[idx + len(OBS_MARK):].strip()
+        if not body:
+            continue
+        subject, _, rest = body.partition(" ")
+        obs.append({"subject": subject, "raw": body, "fields": dict(re.findall(r"(\w+)=([^\s]*)", body))})
+    return obs
+
+
+def find(subject: str, **want) -> list[dict]:
+    out = []
+    for o in _CURRENT:
+        if not o["subject"].startswith(subject):
+            continue
+        f = o["fields"]
+        if all(f.get(k) == v for k, v in want.items()):
+            out.append(o)
+    return out
+
+
+_CURRENT: list[dict] = []
+
+
+def errno_of(obs: dict) -> int | None:
+    m = re.search(r"errno=(\d+)", obs["raw"])
+    return int(m.group(1)) if m else None
+
+
+def status_of(obs: dict) -> dict:
+    """Pull the guarded service status out of a client status observation."""
+    m = re.search(r"status=pid=(\d+) seq=(\d+) .*?events=(\d+)", obs["raw"])
+    if not m:
+        return {}
+    return {"pid": int(m.group(1)), "seq": int(m.group(2)), "events": int(m.group(3))}
+
+
+def verdict(check: bool, rule: str, evidence: list[str]) -> dict:
+    return {"verdict": "PASS" if check else "FAIL", "rule": rule, "evidence": evidence}
+
+
+# --------------------------------------------------------------------------
+# scenario rules (docs/design.md section 1)
+# --------------------------------------------------------------------------
+
+
+def judge_normal(obs: list[dict]) -> dict[str, dict]:
+    """Apply the rules to one normal-image run."""
+    rows = {}
+
+    order = find("client", role="order-probe", op="status")
+    order_ok = bool(order) and order[0]["fields"].get("result") == "OK"
+    rows[BOOT_ORDER] = verdict(
+        order_ok,
+        "the first client after service start gets a status answer",
+        [o["raw"] for o in order[:1]],
+    )
+
+    probe = [o for o in find("client", role="probe", op="write")]
+    outsider = [o for o in find("client", role="outsider", op="open")]
+    deny_after = find("client", role="deny-after", op="status")
+    deny_ok = (
+        bool(probe)
+        and probe[0]["fields"].get("result") == "ERR"
+        and errno_of(probe[0]) in (1, 13)
+        and bool(outsider)
+        and outsider[0]["fields"].get("result") == "ERR"
+        and errno_of(outsider[0]) in (1, 13)
+        and bool(deny_after)
+        and deny_after[0]["fields"].get("result") == "OK"
+    )
+    rows["deny-unprivileged-write"] = verdict(
+        deny_ok,
+        "unprivileged write is refused and the service still answers status",
+        [o["raw"] for o in probe[:1] + outsider[:1] + deny_after[:1]],
+    )
+
+    writer = find("client", role="writer", op="write")
+    writer_after = find("client", role="writer-after", op="status")
+    allow_ok = False
+    if writer and writer[0]["fields"].get("result") == "OK" and writer_after:
+        st = status_of(writer_after[0])
+        allow_ok = (
+            writer_after[0]["fields"].get("result") == "OK"
+            and st.get("events", 0) >= 1
+            and "state=sealed" in writer_after[0]["raw"]
+        )
+    rows["allow-privileged-write"] = verdict(
+        allow_ok,
+        "the permitted writer is accepted and the event count goes up",
+        [o["raw"] for o in writer[:1] + writer_after[:1]],
+    )
+
+    kills_view = find("kill", target="view", result="OK")
+    view_gone = find("view", state="gone")
+    view_after = find("client", role="view-after", op="status")
+    kill_ok = (
+        bool(kills_view)
+        and bool(view_gone)
+        and bool(view_after)
+        and view_after[0]["fields"].get("result") == "OK"
+    )
+    rows["kill-screen"] = verdict(
+        kill_ok,
+        "the status consumer is terminated and the guarded service still answers",
+        [o["raw"] for o in kills_view[:1] + view_gone[:1] + view_after[:1]],
+    )
+
+    kill_svc = find("kill", target="service", result="OK")
+    restarted = [o for o in find("service=") if o["raw"].startswith("service=up")
+                 and int(o["fields"].get("seq", "0") or 0) > 1]
+    respawns = find("supervise", kind="respawn")
+    after = find("client", role="restart-after", op="status")
+    restart_ok = False
+    if kill_svc and after:
+        st = status_of(after[0])
+        restart_ok = (
+            bool(restarted)
+            and st.get("seq", 0) > 1
+            and after[0]["fields"].get("result") == "OK"
+        )
+    rows["ham-restart"] = verdict(
+        restart_ok,
+        "the guarded service is started again after its death and reports a new sequence",
+        [o["raw"] for o in kill_svc[:1] + respawns[:1] + restarted[:1] + after[:1]],
+    )
+
+    rows["all-pass"] = verdict(
+        order_ok and all(rows[n]["verdict"] == "PASS" for n in POSITIVE),
+        "the image passes the startup-order check and all four scenarios",
+        [f"boot-order={rows[BOOT_ORDER]['verdict']}"]
+        + [f"{n}={rows[n]['verdict']}" for n in POSITIVE],
+    )
+    return rows
+
+
+def judge_negative(obs: list[dict]) -> dict[str, dict]:
+    """Apply the startup-order rule to the deliberately misordered image.
+
+    The row's verdict is the verdict this image earned on the startup-order
+    check: FAIL when the first client ran before the service existed, which is
+    what claims.yaml expects for scenario C5. If the image were in fact ordered
+    correctly the row would say PASS and the gate would fail, because then the
+    negative control proved nothing.
+    """
+    first = find("client", role="order-probe", op="status")
+    after = find("client", role="order-after-start", op="status")
+    violated = bool(first) and first[0]["fields"].get("result") == "ERR"
+    recovered = bool(after) and after[0]["fields"].get("result") == "OK"
+    return {
+        NEGATIVE: verdict(
+            (not violated) and recovered,
+            "the image earned its startup-order verdict: FAIL when the first client "
+            "ran before the service existed",
+            [o["raw"] for o in first[:1] + after[:1]],
+        )
+    }
+
+
+# --------------------------------------------------------------------------
+# booting
+# --------------------------------------------------------------------------
+
+
+def local_boot(image_dir: Path, log_path: Path) -> int:
+    qemu = shutil.which("qemu-system-x86_64")
+    if qemu is None:
+        print("run: qemu-system-x86_64 not found and CORDON_BOOT_CMD is not set", file=sys.stderr)
+        return 3
+    cmd = [
+        qemu, "-cpu", "max", "-m", "384", "-snapshot", "-nographic",
+        "-drive", f"file={image_dir / 'disk-qemu'},format=raw,if=ide",
+        "-kernel", str(image_dir / "ifs.bin"),
+    ]
+    with log_path.open("wb") as fh:
+        fh.write(("# " + " ".join(cmd) + "\n").encode())
+        fh.flush()
+        try:
+            subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, timeout=900, check=False)
+        except subprocess.TimeoutExpired:
+            pass
+    return 0
+
+
+def boot(image_dir: Path, log_path: Path) -> int:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = os.environ.get("CORDON_BOOT_CMD")
+    if cmd:
+        rc = subprocess.run([cmd, str(image_dir), str(log_path)], check=False).returncode
+        return rc
+    return local_boot(image_dir, log_path)
+
+
+def sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def image_record(image_dir: Path) -> dict:
+    rec = {"dir": str(image_dir)}
+    for name in ("ifs.bin", "disk-qemu"):
+        p = image_dir / name
+        if p.exists():
+            rec[name] = {"sha256": sha256(p), "bytes": p.stat().st_size}
+    build = image_dir / "build-record.txt"
+    if build.exists():
+        rec["build_record"] = build.read_text(encoding="utf-8")
+    return rec
+
+
+def sources_record() -> dict:
+    rec = {}
+    try:
+        rec["repo_commit"] = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+            check=False).stdout.strip()
+        rec["repo_dirty"] = bool(subprocess.run(
+            ["git", "-C", str(ROOT), "status", "--porcelain"], capture_output=True, text=True,
+            check=False).stdout.strip())
+    except OSError:
+        pass
+    qcc = None
+    qnx_host = os.environ.get("QNX_HOST")
+    if qnx_host:
+        candidate = Path(qnx_host) / "usr" / "bin" / "qcc"
+        if candidate.exists():
+            qcc = str(candidate)
+    qcc = qcc or shutil.which("qcc")
+    if qcc:
+        out = subprocess.run([qcc, "-V"], capture_output=True, text=True, check=False)
+        rec["qcc"] = (out.stdout + out.stderr).strip().splitlines()[:3]
+    else:
+        rec["qcc"] = "unavailable: source qnxsdp-env.sh before running"
+    return rec
+
+
+def booted_images(console: str) -> dict:
+    """Image hashes as the boot host recorded them in the console header."""
+    m = re.search(r"# images: ([0-9a-f]{64}) (\S+), ([0-9a-f]{64}) (\S+)", console)
+    if not m:
+        return {}
+    return {
+        m.group(2): {"sha256": m.group(1)},
+        m.group(4): {"sha256": m.group(3)},
+    }
+
+
+def qnx_version(console: str) -> str:
+    m = re.search(r"(QNX \S+ 8\.0\.0[^\r\n]*)", console)
+    return m.group(1).strip() if m else "unknown"
+
+
+def slog_block(console: str) -> str:
+    m = re.search(r"CORDON-SLOG2-BEGIN\n(.*?)CORDON-SLOG2-END", console, re.S)
+    if not m:
+        return ""
+    return "\n".join(line.rstrip() for line in m.group(1).split("\n"))
+
+
+def events_block(console: str) -> str:
+    m = re.search(r"CORDON-EVENTS-BEGIN\n(.*?)CORDON-EVENTS-END", console, re.S)
+    if not m:
+        return ""
+    return "\n".join(line.rstrip() for line in m.group(1).split("\n"))
+
+
+# --------------------------------------------------------------------------
+# commands
+# --------------------------------------------------------------------------
 
 
 def cmd_claims(argv: list[str]) -> int:
@@ -103,8 +415,135 @@ def cmd_bundle(argv: list[str]) -> int:
 
 
 def cmd_run(argv: list[str]) -> int:
-    print("run: not implemented. Needs a booted QNX 8.0 target and the SDP toolchain.", file=sys.stderr)
-    return 3
+    global _CURRENT
+
+    image = None
+    negative = None
+    out_dir = None
+    do_gate = False
+    console_normal = None
+    console_negative = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--negative":
+            i += 1
+            negative = Path(argv[i])
+        elif a == "--console-normal":
+            i += 1
+            console_normal = Path(argv[i])
+        elif a == "--console-negative":
+            i += 1
+            console_negative = Path(argv[i])
+        elif a == "--out":
+            i += 1
+            out_dir = Path(argv[i])
+        elif a == "--gate":
+            do_gate = True
+        elif image is None:
+            image = Path(a)
+        else:
+            print(f"unexpected argument: {a}", file=sys.stderr)
+            return 2
+        i += 1
+    if image is None and console_normal is None:
+        print("usage: cordon run <imageDir> [--negative <imageDir>] [--out <runDir>]\n"
+              "       cordon run --console-normal <log> [--console-negative <log>] [--out <runDir>]",
+              file=sys.stderr)
+        return 2
+    out = out_dir or ((image or console_normal).parent / "run")
+    out.mkdir(parents=True, exist_ok=True)
+
+    normal_log = out / "console-normal.log"
+    if console_normal is not None:
+        print(f"run: judging captured console {console_normal}")
+        if console_normal.resolve() != normal_log.resolve():
+            shutil.copy2(console_normal, normal_log)
+        if image is not None:
+            print("run: --console-normal wins over the image argument", file=sys.stderr)
+    else:
+        print(f"run: booting {image} -> {normal_log}")
+        rc = boot(image, normal_log)
+        if rc != 0:
+            print(f"run: boot failed (rc={rc})", file=sys.stderr)
+            return 3
+    console = normal_log.read_text(encoding="utf-8", errors="replace")
+    if "CORDON-G2-COMPLETE" not in console:
+        print("run: the target did not report CORDON-G2-COMPLETE", file=sys.stderr)
+        return 1
+    _CURRENT = parse_observations(console)
+    rows = judge_normal(_CURRENT)
+
+    neg_console = ""
+    if negative is not None or console_negative is not None:
+        neg_log = out / "console-negative.log"
+        if console_negative is not None:
+            print(f"run: judging captured console {console_negative}")
+            if console_negative.resolve() != neg_log.resolve():
+                shutil.copy2(console_negative, neg_log)
+        else:
+            print(f"run: booting {negative} -> {neg_log}")
+            rc = boot(negative, neg_log)
+            if rc != 0:
+                print(f"run: negative boot failed (rc={rc})", file=sys.stderr)
+                return 3
+        neg_console = neg_log.read_text(encoding="utf-8", errors="replace")
+        if "CORDON-G2-COMPLETE" not in neg_console:
+            print("run: the misordered image did not report CORDON-G2-COMPLETE", file=sys.stderr)
+            return 1
+        _CURRENT = parse_observations(neg_console)
+        rows.update(judge_negative(_CURRENT))
+
+    order = [
+        "kill-screen", "deny-unprivileged-write", "allow-privileged-write",
+        "ham-restart", NEGATIVE, "all-pass",
+    ]
+    scenarios = []
+    for name in order:
+        row = rows.get(name)
+        if row is None:
+            continue
+        scenarios.append({"name": name, "verdict": row["verdict"], "rule": row["rule"],
+                          "evidence": [e for e in row["evidence"] if e]})
+    (out / "scenarios.json").write_text(
+        json.dumps({"scenarios": scenarios}, indent=2) + "\n", encoding="utf-8")
+
+    header = [f"# Cordon G2 run {out}", "# image (normal):"]
+    header += normal_log.read_text(encoding="utf-8", errors="replace").split("\n")[:9]
+    if neg_console:
+        header += ["", "# image (deliberately misordered):"]
+        header += neg_console.split("\n")[:9]
+    combined = "\n".join(header) + "\n\n=== normal image console ===\n" + console
+    if neg_console:
+        combined += "\n=== misordered image console ===\n" + neg_console
+    (out / "console.log").write_text(combined, encoding="utf-8")
+
+    sla = slog_block(console)
+    if neg_console:
+        sla += "\n=== misordered image ===\n" + slog_block(neg_console)
+    (out / "slog2.txt").write_text(sla + "\n", encoding="utf-8")
+
+    events = events_block(console)
+    (out / "events.log").write_text(events + "\n", encoding="utf-8")
+
+    img = {"qnx_version": qnx_version(console)}
+    if image is not None:
+        img["normal"] = image_record(image)
+    else:
+        img["normal"] = {"booted": booted_images(console)}
+    if negative is not None:
+        img["negative"] = image_record(negative)
+    elif neg_console:
+        img["negative"] = {"booted": booted_images(neg_console)}
+    (out / "image.json").write_text(json.dumps(img, indent=2) + "\n", encoding="utf-8")
+    (out / "sources.json").write_text(json.dumps(sources_record(), indent=2) + "\n",
+                                      encoding="utf-8")
+
+    for s in scenarios:
+        print(f"  {s['verdict']:<4}  {s['name']}")
+    if do_gate:
+        return cmd_gate([str(out)])
+    return 0
 
 
 def main(argv: list[str]) -> int:

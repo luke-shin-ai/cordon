@@ -1,8 +1,10 @@
 .local/
 build/
 evidence/
+out/
 __pycache__/
 *.pyc
+target/build/
 target/boot/kernel/
 target/boot/*.ifs
 target/boot/*.mb

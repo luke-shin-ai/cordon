@@ -1,21 +1,37 @@
-# Cordon normal image buildfile. QNX 8.0. STATUS: draft, never built.
+# Cordon image: the startup-order contract.
 #
-# Startup order matters and is itself a claim: C5 says an image that breaks this
-# order must fail the gate, C6 says a correct image passes six of six.
+# mkqnximage generates the full IFS build file for the image (output/build/
+# ifs.build in the build directory) from the SDP's own templates. What Cordon
+# adds to that image, and the order it adds it in, is this file. It is the thing
+# scenario C5 is about: an image that starts a client before the service exists
+# must be caught, and the only difference between the two images built by
+# target/boot/build-g2-image.sh is these lines.
 #
-# The order encoded here is the intent; the entries are placeholders until the
-# SDP 8.0 toolchain exists to run mkifs.
-
-[virtual=x86_64,elf] .bootstrap = {
-    startup-x86_64
-    PATH=/proc/boot:/bin:/usr/bin LD_LIBRARY_PATH=/proc/boot:/lib:/usr/lib
-    procnto-smp-instr
-}
-
-[+script] .script = {
-    # 1. guarded service first: it must be up before any client starts
-    # 2. secure policy load
-    # 3. HAM, watching the guarded service
-    # 4. clients
-    # 5. screen process, killed in the kill-screen scenario
-}
+# Normal image, appended to post_startup.sh (the last thing startup.sh runs):
+#
+#   1. secpolpush                      push /proc/boot/secpol.bin to procnto
+#   2. on -T cordon_t cordon-supervise start the supervisor, which starts
+#                                      /proc/boot/cordon as its child; the child
+#                                      attaches /dev/cordon
+#   3. wait for /dev/cordon            the run does not continue without it
+#   4. on -T cordon_view_t cordon-client status
+#                                      first client of the run; it must be
+#                                      answered (startup-order check)
+#   5. deny / allow / kill-screen / ham-restart scenarios, in that order
+#   6. slog2info -S, then CORDON-G2-COMPLETE
+#
+# Misordered image, same file with steps 2 and 4 swapped:
+#
+#   1. secpolpush
+#   2. on -T cordon_view_t cordon-client status
+#                                      first client runs before the service
+#                                      exists: it must fail
+#   3. on -T cordon_t cordon-supervise, wait for /dev/cordon, then the same
+#      client again: it must succeed, which shows the image is otherwise fine
+#
+# Every process the scenarios depend on is started with an explicit security
+# type by `on -T`, because the policy is pushed before any of them starts.
+#
+# The pieces themselves (cordon, cordon-supervise, cordon-client, cordon-view,
+# cordon-boot.sh, secpol.bin) are put into the IFS by the mkqnximage snippets
+# that target/boot/build-g2-image.sh writes.

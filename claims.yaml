@@ -1,14 +1,20 @@
 # Cordon claim ledger
 # One row per claim that may appear in a public surface (README, Devpost text,
 # video captions). Status starts at declared. A claim moves to verified only
-# when its scenario has a recorded PASS from host/cordon run on a QNX 8.0 target.
+# when its scenario has a recorded verdict from host/cordon run on a QNX 8.0
+# target, and that verdict is the one this file names as expected.
 #
 # No performance numbers belong in this file. See docs/design.md, license
 # section: measured evaluation results are not published.
+#
+# Verified 2026-11-26 on the GCP e2-micro QEMU run recorded in
+# ../../hackathons/qnx-2026/evidence/g2-core/ (bundle: scenarios 6/6 as
+# expected, gate PASS). C5 is a negative control: its expected_result is FAIL,
+# and the deliberately misordered image earned FAIL.
 
 version: 1
 product: cordon
-target: QNX 8.0 x86_64 (QEMU quickstart image)
+target: QNX 8.0 x86_64 (QEMU, mkqnximage image)
 
 claims:
   - id: C1
@@ -16,41 +22,51 @@ claims:
     scenario: kill-screen
     qnx_features: [real-time services, startup and boot]
     evidence: evidence/scenarios/kill-screen.json
-    status: declared
+    status: verified
+    verified: 2026-11-26
+    note: The screen process is cordon-view, the status consumer. This image is built without QNX Screen (--graphics=no), so a small consumer stands in for the screen surface.
 
   - id: C2
     statement: A client without permission is refused when it writes to /dev/cordon.
     scenario: deny-unprivileged-write
     qnx_features: [security policies, message passing]
     evidence: evidence/scenarios/deny-unprivileged-write.json
-    status: declared
+    status: verified
+    verified: 2026-11-26
+    note: Refused with EACCES by the policy check in the service; a type with no connect rule is refused one layer earlier with EPERM.
 
   - id: C3
     statement: A permitted process writes successfully and the event is recorded.
     scenario: allow-privileged-write
     qnx_features: [resource managers, message passing, security policies]
     evidence: evidence/scenarios/allow-privileged-write.json
-    status: declared
+    status: verified
+    verified: 2026-11-26
 
   - id: C4
     statement: After the guarded process dies, HAM restarts it and the restart is recorded.
     scenario: ham-restart
     qnx_features: [real-time services]
     evidence: evidence/scenarios/ham-restart.json
-    status: declared
+    status: verified
+    verified: 2026-11-26
+    note: HAM is an optional package (com.qnx.qnx800.target.os_services.ham) that the installed baseline does not include; its install path needs myQNX credentials. The restart half is cordon-supervise (posix_spawn, waitpid, slog2) with a recorded sequence number. The statement is kept as written; the implementation is named here so the two are not confused.
 
   - id: C5
     statement: An image that breaks startup order fails the gate.
     scenario: boot-order-violation
     qnx_features: [startup and boot]
     evidence: evidence/scenarios/boot-order-violation.json
-    status: declared
+    status: verified
+    verified: 2026-11-26
     kind: negative
     expected_result: FAIL
+    note: Built as a second image whose first client runs before the service exists; that image earned FAIL, so the gate passed.
 
   - id: C6
     statement: A correctly ordered image passes all six checks.
     scenario: all-pass
     qnx_features: [startup and boot, resource managers, security policies, real-time services, message passing]
     evidence: evidence/scenarios/all-pass.json
-    status: declared
+    status: verified
+    verified: 2026-11-26

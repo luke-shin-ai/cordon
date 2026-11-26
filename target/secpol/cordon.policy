@@ -1,17 +1,57 @@
-# Cordon security policy. QNX 8.0 secpol. STATUS: draft, not loaded on any target.
+# Cordon security policy. QNX 8.0 secpol, compiled by secpolcompile into
+# /proc/boot/secpol.bin and pushed at run time by secpolpush.
 #
-# Intent: only the allowlisted process may open /dev/cordon for writing.
-# Everything else is denied. The deny case is claim C2, the allow case is C3.
+# What it controls
+#   - who may attach the /dev/cordon path (the guarded service only)
+#   - who may connect to the /dev/cordon channel (the clients)
+#   - who may use the custom permissions "write" and "status" on class
+#     "cordon" (the guarded service asks the policy on every read and write)
 #
-# Syntax is checked against the QNX 8.0 security policy reference at G2, when a
-# target exists to load it on. Until then this file is a design statement only.
+# Types
+#   cordon_t            guarded service and its supervisor
+#   cordon_writer_t     permitted writer: write and status
+#   cordon_probe_t      unprivileged client: status only, write must be denied
+#   cordon_view_t       status consumer (the process the kill-screen scenario
+#                       terminates)
+#   cordon_outsider_t   no rule at all: must not even connect
+#
+# The claim ledger points at the scenarios these rules decide: C2 is
+# cordon_probe_t being refused, C3 is cordon_writer_t succeeding.
 
-version 1.0;
+# The guarded service and its supervisor.
+type cordon_t;
 
-types {
-    cordon_guarded;
-    cordon_client;
-}
+# Permitted writer. Claim C3.
+type cordon_writer_t;
 
-define(`cordon_guarded', `type cordon_guarded')
-define(`cordon_client', `type cordon_client')
+# Unprivileged client. Claim C2.
+type cordon_probe_t;
+
+# Status consumer, terminated by the kill-screen scenario. Claim C1.
+type cordon_view_t;
+
+# A subject the policy never allows to reach /dev/cordon. It needs at least
+# one rule of its own to be a real type rather than an unused name; spawn says
+# nothing about the guarded channel.
+type cordon_outsider_t;
+
+# Custom permissions the resource manager checks.
+class cordon { write status };
+
+# Only the guarded service may put a channel at /dev/cordon.
+allow_attach cordon_t /dev/cordon;
+
+# The supervisor starts the guarded service as its child.
+allow cordon_t self:ability { spawn };
+
+# Clients may reach the channel; the outsider has no such rule.
+allow { cordon_writer_t cordon_probe_t cordon_view_t } cordon_t : channel connect;
+
+# Keeps cordon_outsider_t a real type without giving it anything on /dev/cordon.
+allow cordon_outsider_t self:ability { spawn };
+
+# Reading status: every client that may connect may read.
+allow { cordon_writer_t cordon_probe_t cordon_view_t } cordon_t : cordon status;
+
+# Writing: only the permitted writer.
+allow cordon_writer_t cordon_t : cordon write;
