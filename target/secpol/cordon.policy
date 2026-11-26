@@ -11,7 +11,7 @@
 #   cordon_t            guarded service and its supervisor
 #   cordon_writer_t     permitted writer: write and status
 #   cordon_probe_t      unprivileged client: status only, write must be denied
-#   cordon_view_t       status consumer (the process the kill-screen scenario
+#   cordon_view_t       status consumer (the process the kill-consumer scenario
 #                       terminates)
 #   cordon_outsider_t   no rule at all: must not even connect
 #
@@ -27,7 +27,7 @@ type cordon_writer_t;
 # Unprivileged client. Claim C2.
 type cordon_probe_t;
 
-# Status consumer, terminated by the kill-screen scenario. Claim C1.
+# Status consumer, terminated by the kill-consumer scenario. Claim C1.
 type cordon_view_t;
 
 # A subject the policy never allows to reach /dev/cordon. It needs at least

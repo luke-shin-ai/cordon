@@ -12,7 +12,7 @@
 #   tools/checks.sh
 #
 # Environment: QNX_SDP (default /workspace/qnx-env/qnx800), CORDON_BUNDLE
-# (default ../../hackathons/qnx-2026/evidence/g2-core when it exists), and
+# (default ../../hackathons/qnx-2026/evidence/g2-rerun-bundle when it exists), and
 # DEVPOST (default ../../hackathons/qnx-2026/devpost-draft.md when it exists).
 # A check whose input is absent is reported as SKIP, not PASS.
 
@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 REPO=$(pwd)
 WORKSPACE=$(cd "$REPO/../.." 2>/dev/null && pwd || echo "$REPO")
 QNX_SDP=${QNX_SDP:-/workspace/qnx-env/qnx800}
-BUNDLE=${CORDON_BUNDLE:-$WORKSPACE/hackathons/qnx-2026/evidence/g2-core}
+BUNDLE=${CORDON_BUNDLE:-$WORKSPACE/hackathons/qnx-2026/evidence/g2-rerun-bundle}
 DEVPOST=${DEVPOST:-$WORKSPACE/hackathons/qnx-2026/devpost-draft.md}
 LOG=$(mktemp -d)
 FAILED=0

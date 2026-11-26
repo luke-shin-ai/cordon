@@ -1,6 +1,5 @@
 .local/
 build/
-evidence/
 out/
 __pycache__/
 *.pyc

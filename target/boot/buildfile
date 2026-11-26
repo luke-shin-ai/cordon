@@ -17,7 +17,7 @@
 #   4. on -T cordon_view_t cordon-client status
 #                                      first client of the run; it must be
 #                                      answered (startup-order check)
-#   5. deny / allow / kill-screen / ham-restart scenarios, in that order
+#   5. deny / allow / kill-consumer / supervised-restart scenarios, in that order
 #   6. slog2info -S, then CORDON-G2-COMPLETE
 #
 # Misordered image, same file with steps 2 and 4 swapped:

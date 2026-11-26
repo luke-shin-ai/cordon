@@ -1,71 +1,81 @@
 # Cordon claim ledger
-# One row per claim that may appear in a public surface (README, Devpost text,
-# video captions). Status starts at declared. A claim moves to verified only
-# when its scenario has a recorded verdict from host/cordon run on a QNX 8.0
-# target, and that verdict is the one this file names as expected.
+# One row per claim that may appear in a public surface (README, submission
+# text, video captions).
 #
-# No performance numbers belong in this file. See docs/design.md, license
-# section: measured evaluation results are not published.
+# status: declared
+#   The claim is written down and the scenario that would settle it is fixed.
+#   No verdict of any scenario is recorded in this repository or in the
+#   submission text: section 4.6(i) of the QNX Development License Agreement
+#   (Non-Commercial) puts the publication of performance or functional
+#   evaluation results behind prior written approval from BlackBerry, and that
+#   approval has been requested and not yet given. A reader of this file learns
+#   what Cordon checks, not what a run of it concluded.
 #
-# Verified 2026-11-26 on the GCP e2-micro QEMU run kept in the G2 evidence
-# bundle (scenarios 6/6 as expected, gate PASS). C5 is a negative control: its
-# expected_result is FAIL, and the deliberately misordered image earned FAIL.
+# expected_result
+#   What the scenario's rule requires for the image the scenario describes.
+#   It is the rule of the check, not a record of a run. C5 is the negative
+#   control: the rule requires that a misordered image is caught, so the row
+#   states FAIL as the outcome the check demands.
+#
+# How a verdict is produced (host/cordon run):
+#   the target prints one CORDON-OBS line per observed fact, the host applies
+#   the rule for the scenario to those lines, and the gate compares the result
+#   with expected_result below.
 
-version: 1
+version: 2
 product: cordon
 target: QNX 8.0 x86_64 (QEMU, mkqnximage image)
 
 claims:
   - id: C1
     statement: A guarded service keeps running when the process that consumes it is killed.
-    scenario: kill-screen
+    scenario: kill-consumer
     qnx_features: [real-time services, startup and boot]
-    evidence: G2 evidence bundle, scenarios.json row kill-screen
-    status: verified
-    verified: 2026-11-26
-    note: The screen process is cordon-view, the status consumer. This image is built without QNX Screen (--graphics=no), so a small consumer stands in for the screen surface.
+    evidence_source: observation lines from a boot of the normal image, under the scenario name kill-consumer
+    status: declared
+    expected_result: PASS
+    note: The consumer is cordon-view, the long lived status reader. The image is built without QNX Screen (--graphics=no), so a small process stands in for the screen surface and the scenario name says consumer, not screen.
 
   - id: C2
     statement: A client without permission is refused when it writes to /dev/cordon.
     scenario: deny-unprivileged-write
     qnx_features: [security policies, message passing]
-    evidence: G2 evidence bundle, scenarios.json row deny-unprivileged-write
-    status: verified
-    verified: 2026-11-26
-    note: Refused with EACCES by the policy check in the service; a type with no connect rule is refused one layer earlier with EPERM.
+    evidence_source: observation lines from a boot of the normal image, under the scenario name deny-unprivileged-write
+    status: declared
+    expected_result: PASS
+    note: The refusal inside the service is made by secpol_check_permission in cordon_write. A client type with no connect rule is refused one layer earlier by the kernel.
 
   - id: C3
     statement: A permitted process writes successfully and the event is recorded.
     scenario: allow-privileged-write
     qnx_features: [resource managers, message passing, security policies]
-    evidence: G2 evidence bundle, scenarios.json row allow-privileged-write
-    status: verified
-    verified: 2026-11-26
+    evidence_source: observation lines from a boot of the normal image, under the scenario name allow-privileged-write
+    status: declared
+    expected_result: PASS
 
   - id: C4
     statement: After the guarded process dies, the supervisor starts it again and the restart is recorded.
-    scenario: ham-restart
+    scenario: supervised-restart
     qnx_features: [real-time services]
-    evidence: G2 evidence bundle, scenarios.json row ham-restart
-    status: verified
-    verified: 2026-11-26
-    note: The supervisor is cordon-supervise, which uses posix_spawn, waitpid and slog2 and records a sequence number for every start. HAM, which a production image would normally use, is an optional package (com.qnx.qnx800.target.os_services.ham) that the installed baseline does not include, and its install path needs myQNX credentials; the scenario name keeps the word ham because that is the property it stands for.
+    evidence_source: observation lines from a boot of the normal image, under the scenario name supervised-restart
+    status: declared
+    expected_result: PASS
+    note: The supervisor is cordon-supervise. It uses posix_spawn, waitpid and slog2, and records a sequence number for every start. HAM is an optional QNX 8.0 package (com.qnx.qnx800.target.os_services.ham) that the installed baseline does not include, so a production image would put a HAM entity in this role; the scenario name says what the image does, which is supervision.
 
   - id: C5
-    statement: An image that breaks startup order fails the gate.
+    statement: An image that breaks startup order is caught by the startup-order check.
     scenario: boot-order-violation
     qnx_features: [startup and boot]
-    evidence: G2 evidence bundle, scenarios.json row boot-order-violation
-    status: verified
-    verified: 2026-11-26
+    evidence_source: observation lines from a boot of the misordered image, under the scenario name boot-order-violation
+    status: declared
     kind: negative
     expected_result: FAIL
-    note: Built as a second image whose first client runs before the service exists; that image earned FAIL, so the gate passed.
+    note: The misordered image runs its first client before the service exists, so the rule for this scenario requires FAIL. If such an image produced PASS the gate fails, because then the control would not distinguish startup order at all.
 
   - id: C6
-    statement: A correctly ordered image passes all six checks.
+    statement: A correctly ordered image satisfies the startup-order check and the four positive scenarios.
     scenario: all-pass
     qnx_features: [startup and boot, resource managers, security policies, real-time services, message passing]
-    evidence: G2 evidence bundle, scenarios.json row all-pass
-    status: verified
-    verified: 2026-11-26
+    evidence_source: observation lines from a boot of the normal image, under the scenario name all-pass
+    status: declared
+    expected_result: PASS

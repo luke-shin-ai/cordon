@@ -27,19 +27,19 @@ COMMIT = "c" * 40
 
 SCENARIOS = {
     "scenarios": [
-        {"name": "kill-screen", "verdict": "PASS", "rule": "the consumer is terminated",
+        {"name": "kill-consumer", "verdict": "PASS", "rule": "the consumer is terminated",
          "evidence": ["kill target=view pid=300 result=OK", "view pid=300 state=gone"]},
         {"name": "deny-unprivileged-write", "verdict": "PASS", "rule": "the write is refused",
          "evidence": ["client role=probe op=write result=ERR errno=13(Permission denied)",
                       "client role=outsider op=open result=ERR errno=1(Operation not permitted)"]},
         {"name": "allow-privileged-write", "verdict": "PASS", "rule": "the writer is accepted",
          "evidence": ["client role=writer op=write result=OK bytes=22"]},
-        {"name": "ham-restart", "verdict": "PASS", "rule": "the service is started again",
+        {"name": "supervised-restart", "verdict": "PASS", "rule": "the service is started again",
          "evidence": ["supervise respawn kind=respawn next_seq=2"]},
         {"name": "boot-order-violation", "verdict": "FAIL", "rule": "the image earned FAIL",
          "evidence": ["client role=order-probe op=status result=ERR errno=2(No such file)"]},
         {"name": "all-pass", "verdict": "PASS", "rule": "all five pass",
-         "evidence": ["kill-screen=PASS", "ham-restart=PASS"]},
+         "evidence": ["kill-consumer=PASS", "supervised-restart=PASS"]},
     ]
 }
 

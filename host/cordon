@@ -41,10 +41,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cordon_notes  # noqa: E402  (sibling module, same directory)
 
 POSITIVE = [
-    "kill-screen",
+    "kill-consumer",
     "deny-unprivileged-write",
     "allow-privileged-write",
-    "ham-restart",
+    "supervised-restart",
 ]
 NEGATIVE = "boot-order-violation"
 BOOT_ORDER = "boot-order"
@@ -177,7 +177,7 @@ def judge_normal(obs: list[dict]) -> dict[str, dict]:
         and bool(view_after)
         and view_after[0]["fields"].get("result") == "OK"
     )
-    rows["kill-screen"] = verdict(
+    rows["kill-consumer"] = verdict(
         kill_ok,
         "the status consumer is terminated and the guarded service still answers",
         [o["raw"] for o in kills_view[:1] + view_gone[:1] + view_after[:1]],
@@ -196,7 +196,7 @@ def judge_normal(obs: list[dict]) -> dict[str, dict]:
             and st.get("seq", 0) > 1
             and after[0]["fields"].get("result") == "OK"
         )
-    rows["ham-restart"] = verdict(
+    rows["supervised-restart"] = verdict(
         restart_ok,
         "the guarded service is started again after its death and reports a new sequence",
         [o["raw"] for o in kill_svc[:1] + respawns[:1] + restarted[:1] + after[:1]],
@@ -502,8 +502,8 @@ def cmd_run(argv: list[str]) -> int:
         rows.update(judge_negative(_CURRENT))
 
     order = [
-        "kill-screen", "deny-unprivileged-write", "allow-privileged-write",
-        "ham-restart", NEGATIVE, "all-pass",
+        "kill-consumer", "deny-unprivileged-write", "allow-privileged-write",
+        "supervised-restart", NEGATIVE, "all-pass",
     ]
     scenarios = []
     for name in order:

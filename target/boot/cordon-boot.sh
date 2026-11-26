@@ -1,8 +1,8 @@
 #!/bin/sh
 # Cordon G2 scenario runner. Runs on the target at the end of system startup
 # (from post_startup.sh, see target/boot/build-g2-image.sh) and prints one
-# observation line per fact. It asserts nothing: the PASS/FAIL decision is made
-# on the host by `cordon run`, from these lines alone.
+# observation line per fact. It asserts nothing: `cordon run` on the host decides
+# the result of each scenario from these lines alone.
 #
 #   cordon-boot.sh normal     service first, then every scenario
 #   cordon-boot.sh violated   first client before the service, to show that an
@@ -125,7 +125,7 @@ client cordon_view_t writer-after status
 echo "CORDON-OBS scenario name=allow-privileged-write step=end"
 
 # C1: the status consumer is killed; the guarded service keeps answering.
-echo "CORDON-OBS scenario name=kill-screen step=begin"
+echo "CORDON-OBS scenario name=kill-consumer step=begin"
 rm -f /dev/shmem/cordon-view.pid
 on -T cordon_view_t "$B/cordon-view" -n 60 -f /dev/shmem/cordon-view.pid &
 i=0
@@ -150,10 +150,10 @@ else
     echo "CORDON-OBS view pid=$viewpid state=gone"
 fi
 client cordon_view_t view-after status
-echo "CORDON-OBS scenario name=kill-screen step=end"
+echo "CORDON-OBS scenario name=kill-consumer step=end"
 
 # C4: the supervisor starts the guarded service again after it dies.
-echo "CORDON-OBS scenario name=ham-restart step=begin"
+echo "CORDON-OBS scenario name=supervised-restart step=begin"
 st=$(client cordon_view_t pre-kill status)
 echo "$st"
 svcpid=$(echo "$st" | field pid)
@@ -171,7 +171,7 @@ while [ $i -lt 10 ]; do
     i=$((i + 1))
 done
 client cordon_view_t restart-after status
-echo "CORDON-OBS scenario name=ham-restart step=end"
+echo "CORDON-OBS scenario name=supervised-restart step=end"
 
 # Event log as the service wrote it, and the slog2 dump of the whole run.
 echo "CORDON-EVENTS-BEGIN"

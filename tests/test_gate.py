@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CORDON = ROOT / "host" / "cordon"
 
-POSITIVE = ["kill-screen", "deny-unprivileged-write", "allow-privileged-write", "ham-restart", "all-pass"]
+POSITIVE = ["kill-consumer", "deny-unprivileged-write", "allow-privileged-write", "supervised-restart", "all-pass"]
 NEGATIVE = "boot-order-violation"
 
 

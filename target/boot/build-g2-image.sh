@@ -27,10 +27,16 @@ esac
 IFS_ONLY=0
 [ "${2:-}" = "--ifs-only" ] && IFS_ONLY=1
 
-SDP=${SDP:-/workspace/qnx-env/qnx800}
 ROOT=$(cd "$(dirname "$0")/../." && pwd)          # build/cordon/target
 CORDON=$(cd "$ROOT/.." && pwd)                    # build/cordon
-WORK=${WORK:-/workspace/qnx-env/vm-image-g2-$MODE}
+if [ -z "${SDP:-}" ]; then
+    if [ -n "${QNX_HOST:-}" ]; then
+        SDP=$(cd "$QNX_HOST/../../.." && pwd)
+    else
+        SDP=/workspace/qnx-env/qnx800
+    fi
+fi
+WORK=${WORK:-$CORDON/out/work-$MODE}
 BUILD=$ROOT/build
 OUT=$CORDON/out/g2-$MODE
 
@@ -38,9 +44,15 @@ set +u
 # shellcheck disable=SC1090
 . "$SDP/qnxsdp-env.sh" >/dev/null 2>&1
 set -u
-export PATH=/workspace/qnx-env/bin:$PATH
-export TMPDIR=/workspace/qnx-env/tmp
-mkdir -p "$TMPDIR"
+# Two helpers live outside the SDP on the machine this was written on: a shim
+# for awk, and a scratch directory outside the size limited /tmp. Use them when
+# they are there and leave the environment alone when they are not.
+if [ -d /workspace/qnx-env/bin ]; then
+    export PATH=/workspace/qnx-env/bin:$PATH
+fi
+if [ -d /workspace/qnx-env/tmp ]; then
+    export TMPDIR=/workspace/qnx-env/tmp
+fi
 
 echo "== compile"
 CC_ARGS="-Wall -Wextra -O1"

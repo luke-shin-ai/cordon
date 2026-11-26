@@ -43,6 +43,27 @@ def main() -> int:
     if not any(step.duration for step in codelab.steps):
         failures.append("at least one section should carry a duration")
 
+    if not codelab.includes:
+        failures.append("the codelab should take its listings from repository files")
+    for rel in codelab.includes:
+        source = ROOT / rel
+        if not source.is_file():
+            failures.append(f"included file should exist: {rel}")
+            continue
+        body = source.read_text(encoding="utf-8").rstrip("\n")
+        if body not in codelab.text:
+            failures.append(f"the listing for {rel} should equal the file byte for byte")
+        if f"file={rel}" in codelab.text:
+            failures.append(f"the file= marker for {rel} should be gone after expansion")
+
+    missing = Path(tempfile.mkdtemp(prefix="cordon-include-")) / "gone.md"
+    missing.write_text(SOURCE.read_text(encoding="utf-8").replace(
+        "file=target/secpol/cordon.policy", "file=target/secpol/no-such-file.policy"),
+        encoding="utf-8")
+    problems = render.validate(render.load(missing))
+    if not any("include target not found" in problem for problem in problems):
+        failures.append("a missing include target should fail validation")
+
     page = render.render(codelab)
     if "<html" not in page or "</html>" not in page:
         failures.append("the renderer should produce a whole document")

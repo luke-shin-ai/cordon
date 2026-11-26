@@ -11,6 +11,18 @@ GitHub Pages as it is.
   python3 render.py --out site              validate and render into site/
   python3 render.py --check --root markdown only look in one directory tree
 
+Code blocks
+  A fenced block may name a file in this repository instead of carrying its
+  own text:
+
+      ```c file=target/resmgr/cordon.c
+      ```
+
+  The block is filled with that file at load time and the file= marker is
+  dropped, so the listing and the repository cannot drift. A missing file is a
+  validation problem. The rendered output includes an expanded markdown copy
+  of each codelab for a toolchain that wants plain markdown.
+
 Metadata keys, from the QNX codelabs README: id, title, summary, categories,
 tags, platforms, published, featured, status, authors. id must equal the file
 name, tags carries exactly one level, published is YYYY-MM-DD.
@@ -29,6 +41,7 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_ROOT = HERE / "markdown"
 DEFAULT_OUT = HERE / "site"
 
+REPO_ROOT = HERE.parent
 REQUIRED_KEYS = ("id", "title", "summary", "categories", "tags", "published", "status")
 LEVELS = ("beginner", "intermediate", "advanced")
 STATUSES = ("published", "draft", "hidden")
@@ -52,6 +65,9 @@ class Codelab:
     title_heading: str
     steps: list
     source: Path
+    text: str = ""
+    includes: list = field(default_factory=list)
+    problems: list = field(default_factory=list)
 
 
 def parse(text: str) -> tuple:
@@ -100,14 +116,54 @@ def parse_steps(body: list) -> list:
     return steps
 
 
-def load(path: Path) -> Codelab:
-    text = path.read_text(encoding="utf-8")
+INCLUDE = re.compile(r"^```([\w+-]*)(?:\s+file=(\S+))?$")
+
+
+def expand(text: str, repo: Path) -> tuple:
+    """Replace ```lang file=path blocks with the content of that file.
+
+    Returns the expanded text, the list of files used, and any problem found.
+    """
+    lines = text.splitlines()
+    out: list = []
+    used: list = []
+    problems: list = []
+    index = 0
+    while index < len(lines):
+        match = INCLUDE.match(lines[index].strip())
+        if match and match.group(2):
+            rel = match.group(2)
+            target = repo / rel
+            if not target.is_file():
+                problems.append(f"include target not found: {rel}")
+                out.append(lines[index])
+                index += 1
+                continue
+            used.append(rel)
+            body = target.read_text(encoding="utf-8").rstrip("\n")
+            out.append("```" + match.group(1))
+            out.extend(body.splitlines())
+            out.append("```")
+            index += 1
+            while index < len(lines) and lines[index].strip() != "```":
+                index += 1
+            index += 1
+            continue
+        out.append(lines[index])
+        index += 1
+    return "\n".join(out) + "\n", used, problems
+
+
+def load(path: Path, repo: Path = REPO_ROOT) -> Codelab:
+    raw = path.read_text(encoding="utf-8")
+    text, used, problems = expand(raw, repo)
     meta, heading, body = parse(text)
-    return Codelab(meta=meta, title_heading=heading, steps=parse_steps(body), source=path)
+    return Codelab(meta=meta, title_heading=heading, steps=parse_steps(body), source=path,
+                   text=text, includes=used, problems=problems)
 
 
 def validate(codelab: Codelab) -> list:
-    problems = []
+    problems = list(codelab.problems)
     meta = codelab.meta
     for key in REQUIRED_KEYS:
         if not meta.get(key):
@@ -356,6 +412,7 @@ def main(argv: list) -> int:
     for codelab in rendered:
         meta = codelab.meta
         (args.out / f"{meta['id']}.html").write_text(render(codelab), encoding="utf-8")
+        (args.out / f"{meta['id']}.md").write_text(codelab.text, encoding="utf-8")
         cards.append(CARD.format(
             id=html.escape(meta["id"]),
             title=html.escape(meta["title"]),

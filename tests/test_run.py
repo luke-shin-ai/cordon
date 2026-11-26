@@ -83,8 +83,8 @@ def main() -> int:
     failures = []
 
     rows = judge(NORMAL)
-    for name in ("boot-order", "kill-screen", "deny-unprivileged-write",
-                 "allow-privileged-write", "ham-restart", "all-pass"):
+    for name in ("boot-order", "kill-consumer", "deny-unprivileged-write",
+                 "allow-privileged-write", "supervised-restart", "all-pass"):
         if rows[name]["verdict"] != "PASS":
             failures.append(f"{name} should pass on the full normal console")
 
@@ -100,13 +100,13 @@ def main() -> int:
     broken = broken.replace(
         "client role=restart-after type=cordon_view_t op=status result=OK status=pid=102 seq=2",
         "client role=restart-after type=cordon_view_t op=status result=OK status=pid=101 seq=1")
-    if judge(broken)["ham-restart"]["verdict"] != "FAIL":
-        failures.append("missing restart evidence should fail ham-restart")
+    if judge(broken)["supervised-restart"]["verdict"] != "FAIL":
+        failures.append("missing restart evidence should fail supervised-restart")
 
     # The consumer that is killed must actually be gone.
     broken = NORMAL.replace("view pid=300 state=gone", "view pid=300 state=alive")
-    if judge(broken)["kill-screen"]["verdict"] != "FAIL":
-        failures.append("a surviving consumer should fail kill-screen")
+    if judge(broken)["kill-consumer"]["verdict"] != "FAIL":
+        failures.append("a surviving consumer should fail kill-consumer")
 
     # A correctly ordered image makes the negative row PASS, which fails the gate.
     ok_image = VIOLATED.replace(

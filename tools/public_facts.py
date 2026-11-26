@@ -5,11 +5,14 @@ A public surface is any text a judge can read: the README, the design notes,
 the codelab, the submission draft. Every factual token in those texts is
 compared with the bundle that the run produced:
 
-  scenario names and their PASS or FAIL
+  scenario names, and a failure if a surface states the result of one
   image hashes and the source commit
   errno values and the policy id
   counts of scenarios, claims and bundle files
   file paths that the text names
+
+The verdicts of the run are not published while the section 4.6(i) approval is
+outstanding, so a sentence that states one is reported as a problem.
 
   python3 tools/public_facts.py --bundle ../../hackathons/qnx-2026/evidence/g2-core \
       README.md docs codelab/markdown
@@ -34,7 +37,7 @@ import cordon_notes as notes  # noqa: E402
 INTERNAL_NAMES = {"boot-order"}
 # Only tokens of these shapes are read as scenario names, so a file name such as
 # cordon-boot.sh is never mistaken for one.
-SCENARIO_PREFIXES = ("kill-", "deny-", "allow-", "ham-", "boot-order", "all-pass")
+SCENARIO_PREFIXES = ("kill-", "deny-", "allow-", "supervised-", "boot-order", "all-pass")
 
 PATH_PREFIXES = ("target/", "host/", "docs/", "codelab/", "tools/", "tests/")
 ROOT_FILES = {"README.md", "Makefile", "LICENSE", "claims.yaml", ".gitignore"}
@@ -93,8 +96,8 @@ def main(argv: list) -> int:
         verdict = bundle.verdicts.get(scenario)
         check(f"ledger {claim['id']} verdict", verdict == claim.get("expected_result", "PASS"),
               f"{scenario} is {verdict}, ledger expects {claim.get('expected_result', 'PASS')}")
-        check(f"ledger {claim['id']} verified", claim.get("status") == "verified",
-              f"{scenario} status is {claim.get('status')}")
+        check(f"ledger {claim['id']} status", claim.get("status") == "declared",
+              f"{scenario} status is {claim.get('status')}, ledger should say declared")
 
     if "boot-order" in INTERNAL_NAMES:
         check("boot-order evidence", "boot-order=PASS" in bundle.text,
@@ -114,15 +117,19 @@ def main(argv: list) -> int:
             if token.startswith(SCENARIO_PREFIXES):
                 check(f"{label} scenario name", False, f"unknown scenario {token}")
 
-        for name, verdict in bundle.verdicts.items():
+        for name in bundle.verdicts:
             for match in re.finditer(re.escape(name), text):
                 window = text[match.end():match.end() + 60].split("\n")[0]
                 stated = VERDICT_NEAR.search(window)
                 if stated:
-                    word = stated.group(1).lower()
-                    said = "PASS" if word.startswith("pass") else "FAIL"
-                    check(f"{label} verdict for {name}", said == verdict,
-                          f"text says {said}, bundle says {verdict}")
+                    check(f"{label} result for {name}", False,
+                          f"states a result ({stated.group(0)}) next to {name}; "
+                          "verdicts are not published while 4.6(i) approval is outstanding")
+
+        for phrase in ("six of six", "6 of 6", "GATE: PASS", "gate PASS",
+                       "Guaranteed by a PASS", "status: verified", "verified on"):
+            if phrase.lower() in text.lower():
+                check(f"{label} unpublished result phrase", False, f"contains {phrase!r}")
 
         for cid in set(re.findall(r"\bC[1-6]\b", text)):
             claim = bundle.claim(cid)

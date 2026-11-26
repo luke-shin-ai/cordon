@@ -1,7 +1,7 @@
 /*
  * cordon-view. The status consumer of /dev/cordon.
  *
- * This is the process the kill-screen scenario terminates. It is NOT the QNX
+ * This is the process the kill-consumer scenario terminates. It is NOT the QNX
  * Screen graphics service: this image is built with --graphics=no and has no
  * screen, so a small consumer stands in for the console/status surface that a
  * real system would show. docs/design.md section 1 says so explicitly.
