@@ -7,10 +7,9 @@
 # No performance numbers belong in this file. See docs/design.md, license
 # section: measured evaluation results are not published.
 #
-# Verified 2026-11-26 on the GCP e2-micro QEMU run recorded in
-# ../../hackathons/qnx-2026/evidence/g2-core/ (bundle: scenarios 6/6 as
-# expected, gate PASS). C5 is a negative control: its expected_result is FAIL,
-# and the deliberately misordered image earned FAIL.
+# Verified 2026-11-26 on the GCP e2-micro QEMU run kept in the G2 evidence
+# bundle (scenarios 6/6 as expected, gate PASS). C5 is a negative control: its
+# expected_result is FAIL, and the deliberately misordered image earned FAIL.
 
 version: 1
 product: cordon

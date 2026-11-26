@@ -188,8 +188,8 @@ python3 tests/test_codelab.py
 
 `codelab/markdown/cordon-release-gate/` builds a guarded device node from an
 empty project in about ten steps, and `codelab/render.py --out site` turns it
-into a static site that can be published as it is. The same source is kept in
-`hackathons/qnx-2026/codelab/` for the submission entry.
+into a static site that can be published as it is. The same source is what the
+submission entry uses.
 
 ## Scope line
 
