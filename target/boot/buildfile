@@ -1,0 +1,21 @@
+# Cordon normal image buildfile. QNX 8.0. STATUS: draft, never built.
+#
+# Startup order matters and is itself a claim: C5 says an image that breaks this
+# order must fail the gate, C6 says a correct image passes six of six.
+#
+# The order encoded here is the intent; the entries are placeholders until the
+# SDP 8.0 toolchain exists to run mkifs.
+
+[virtual=x86_64,elf] .bootstrap = {
+    startup-x86_64
+    PATH=/proc/boot:/bin:/usr/bin LD_LIBRARY_PATH=/proc/boot:/lib:/usr/lib
+    procnto-smp-instr
+}
+
+[+script] .script = {
+    # 1. guarded service first: it must be up before any client starts
+    # 2. secure policy load
+    # 3. HAM, watching the guarded service
+    # 4. clients
+    # 5. screen process, killed in the kill-screen scenario
+}

@@ -1,0 +1,17 @@
+# Cordon security policy. QNX 8.0 secpol. STATUS: draft, not loaded on any target.
+#
+# Intent: only the allowlisted process may open /dev/cordon for writing.
+# Everything else is denied. The deny case is claim C2, the allow case is C3.
+#
+# Syntax is checked against the QNX 8.0 security policy reference at G2, when a
+# target exists to load it on. Until then this file is a design statement only.
+
+version 1.0;
+
+types {
+    cordon_guarded;
+    cordon_client;
+}
+
+define(`cordon_guarded', `type cordon_guarded')
+define(`cordon_client', `type cordon_client')

@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Cordon host CLI, skeleton.
+
+Commands
+  claims [bundle]      list the claim ledger, or compare it with a bundle
+  run <image>          execute the six scenarios on a QNX target (not implemented)
+  gate <bundle>        PASS when every scenario matches its expectation, else FAIL
+  bundle <dir> [out]   collect a run directory into one evidence bundle
+
+The gate and bundle commands work on evidence that already exists. The run
+command needs a booted QNX 8.0 target and the SDP toolchain, which the build
+environment does not have yet, so it exits 3 with a message instead of pretending.
+
+Exit codes: 0 PASS, 1 FAIL, 2 usage or bad input, 3 not implemented.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+CLAIMS = ROOT / "claims.yaml"
+
+
+def load_claims() -> list[dict]:
+    import yaml
+
+    data = yaml.safe_load(CLAIMS.read_text(encoding="utf-8"))
+    return data["claims"]
+
+
+def cmd_claims(argv: list[str]) -> int:
+    claims = load_claims()
+    bundle = Path(argv[0]) if argv else None
+    verdicts = {}
+    if bundle:
+        path = bundle / "scenarios.json"
+        if not path.exists():
+            print(f"missing {path}", file=sys.stderr)
+            return 2
+        for row in json.loads(path.read_text(encoding="utf-8"))["scenarios"]:
+            verdicts[row["name"]] = row["verdict"]
+    for claim in claims:
+        mark = verdicts.get(claim["scenario"], claim["status"].upper())
+        print(f"{claim['id']}  {mark:<8}  {claim['scenario']:<26}  {claim['statement']}")
+    return 0
+
+
+def cmd_gate(argv: list[str]) -> int:
+    if not argv:
+        print("usage: cordon gate <bundle>", file=sys.stderr)
+        return 2
+    path = Path(argv[0]) / "scenarios.json"
+    if not path.exists():
+        print(f"missing {path}", file=sys.stderr)
+        return 2
+    rows = json.loads(path.read_text(encoding="utf-8"))["scenarios"]
+    expected = {c["scenario"]: c for c in load_claims()}
+    failed = []
+    for row in rows:
+        claim = expected.get(row["name"])
+        if claim is None:
+            failed.append((row["name"], "unknown scenario"))
+            continue
+        want = claim.get("expected_result", "PASS")
+        if row["verdict"] != want:
+            failed.append((row["name"], f"expected {want}, got {row['verdict']}"))
+    seen = {row["name"] for row in rows}
+    for name in expected:
+        if name not in seen:
+            failed.append((name, "no result in bundle"))
+    if failed:
+        print("GATE: FAIL")
+        for name, why in failed:
+            print(f"  {name}: {why}")
+        return 1
+    print("GATE: PASS")
+    return 0
+
+
+def cmd_bundle(argv: list[str]) -> int:
+    if not argv:
+        print("usage: cordon bundle <runDir> [outDir]", file=sys.stderr)
+        return 2
+    src = Path(argv[0])
+    out = Path(argv[1]) if len(argv) > 1 else src.parent / "bundle"
+    if not src.is_dir():
+        print(f"missing {src}", file=sys.stderr)
+        return 2
+    out.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for name in ("scenarios.json", "console.log", "slog2.txt", "image.json", "sources.json"):
+        if (src / name).exists():
+            shutil.copy2(src / name, out / name)
+            copied.append(name)
+    manifest = {"files": copied, "complete": len(copied) == 5}
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"bundle: {out}  files={len(copied)}/5")
+    return 0 if manifest["complete"] else 1
+
+
+def cmd_run(argv: list[str]) -> int:
+    print("run: not implemented. Needs a booted QNX 8.0 target and the SDP toolchain.", file=sys.stderr)
+    return 3
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if len(argv) > 1 else 2
+    command, rest = argv[1], argv[2:]
+    table = {"claims": cmd_claims, "gate": cmd_gate, "bundle": cmd_bundle, "run": cmd_run}
+    if command not in table:
+        print(f"unknown command: {command}", file=sys.stderr)
+        return 2
+    return table[command](rest)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

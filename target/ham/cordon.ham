@@ -1,0 +1,10 @@
+# Cordon HAM rule. QNX 8.0. STATUS: draft, not loaded on any target.
+#
+# Claim C4: when the guarded process dies it is restarted and the restart is
+# recorded. The recorded event is what host/cordon reads back in the bundle.
+#
+# Field names are verified against the QNX 8.0 HAM documentation at G2.
+
+# Placeholder until the entity names exist on a real image:
+#   <startup entity>              restart on death, max restarts in window
+#   <slog2 marker>                one line per restart, read by the host

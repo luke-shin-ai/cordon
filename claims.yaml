@@ -1,0 +1,56 @@
+# Cordon claim ledger
+# One row per claim that may appear in a public surface (README, Devpost text,
+# video captions). Status starts at declared. A claim moves to verified only
+# when its scenario has a recorded PASS from host/cordon run on a QNX 8.0 target.
+#
+# No performance numbers belong in this file. See docs/design.md, license
+# section: measured evaluation results are not published.
+
+version: 1
+product: cordon
+target: QNX 8.0 x86_64 (QEMU quickstart image)
+
+claims:
+  - id: C1
+    statement: A guarded service keeps running when the screen process is killed.
+    scenario: kill-screen
+    qnx_features: [real-time services, startup and boot]
+    evidence: evidence/scenarios/kill-screen.json
+    status: declared
+
+  - id: C2
+    statement: A client without permission is refused when it writes to /dev/cordon.
+    scenario: deny-unprivileged-write
+    qnx_features: [security policies, message passing]
+    evidence: evidence/scenarios/deny-unprivileged-write.json
+    status: declared
+
+  - id: C3
+    statement: A permitted process writes successfully and the event is recorded.
+    scenario: allow-privileged-write
+    qnx_features: [resource managers, message passing, security policies]
+    evidence: evidence/scenarios/allow-privileged-write.json
+    status: declared
+
+  - id: C4
+    statement: After the guarded process dies, HAM restarts it and the restart is recorded.
+    scenario: ham-restart
+    qnx_features: [real-time services]
+    evidence: evidence/scenarios/ham-restart.json
+    status: declared
+
+  - id: C5
+    statement: An image that breaks startup order fails the gate.
+    scenario: boot-order-violation
+    qnx_features: [startup and boot]
+    evidence: evidence/scenarios/boot-order-violation.json
+    status: declared
+    kind: negative
+    expected_result: FAIL
+
+  - id: C6
+    statement: A correctly ordered image passes all six checks.
+    scenario: all-pass
+    qnx_features: [startup and boot, resource managers, security policies, real-time services, message passing]
+    evidence: evidence/scenarios/all-pass.json
+    status: declared
