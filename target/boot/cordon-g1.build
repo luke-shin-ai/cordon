@@ -1,0 +1,36 @@
+# Cordon G1 image. QNX 8.0 x86, booted under QEMU (TCG, no KVM).
+#
+# Purpose: prove that a cross built binary from this toolchain runs on QNX 8.0.
+# It boots the microkernel, puts a serial console up, runs /proc/boot/hello and
+# prints one marker line. The hello entries become cordon-resmgr at G2.
+#
+# Build:
+#   bash -c 'source qnx-env/qnx800/qnxsdp-env.sh && \
+#     mkifs build/cordon/target/boot/cordon-g1.build build/cordon/target/boot/cordon-g1.ifs'
+#
+# One [search] line: a second [search] replaces the first instead of adding to it.
+
+[search=/workspace/build/cordon/target/boot/kernel:/workspace/build/cordon/target/boot/hello:/workspace/qnx-env/qnx800/target/qnx/x86_64/boot/sys:/workspace/qnx-env/qnx800/target/qnx/x86_64/bin:/workspace/qnx-env/qnx800/target/qnx/x86_64/sbin:/workspace/qnx-env/qnx800/target/qnx/x86_64/usr/bin:/workspace/qnx-env/qnx800/target/qnx/x86_64/lib:/workspace/qnx-env/qnx800/target/qnx/x86_64/lib/dll]
+
+[virtual=x86,elf] .bootstrap = {
+    startup-x86 -D 0x3f8,115200 -K -v
+    PATH=/proc/boot:/bin:/sbin:/usr/bin:/usr/sbin LD_LIBRARY_PATH=/proc/boot:/lib:/lib/dll:/usr/lib
+    procnto-smp-instr
+}
+
+[+script] .script = {
+    devc-ser8250 -e -b 115200 0x3f8,4
+    reopen /dev/ser1
+    display_msg "\n*** CORDON: QNX 8.0 booted, running test program ***\n"
+    hello
+    display_msg "*** CORDON: test program finished ***\n"
+}
+
+[type=link] /dev/console=/dev/ser1
+
+# test program, cross built by qcc for gcc_ntox86_64
+hello
+
+# runtime dependencies of hello
+libc.so.6
+libgcc_s.so.1

@@ -3,3 +3,8 @@ build/
 evidence/
 __pycache__/
 *.pyc
+target/boot/kernel/
+target/boot/*.ifs
+target/boot/*.mb
+target/boot/cordon-g1-bios.build
+target/boot/hello/hello
