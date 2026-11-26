@@ -197,8 +197,8 @@ python3 tests/test_codelab.py
 ## Codelab
 
 `codelab/markdown/cordon-release-gate/` builds a guarded device node from an
-empty project in ten steps, and takes its code blocks from the files in this
-repository, so the listing and the repository cannot drift. `codelab/render.py
+empty project, step by step, and takes its program and policy listings from the
+files in this repository, so the listing and the repository cannot drift. `codelab/render.py
 --out site` validates it and turns it into a static site that can be published
 as it is. The rendered copy is at
 https://luke-shin-ai.github.io/cordon/cordon-release-gate.html and the same
