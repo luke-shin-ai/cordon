@@ -1,0 +1,24 @@
+recorded: 2026-11-26T09:29:33Z
+sdp: /workspace/qnx-env/qnx800
+
+$ qcc -Wall -Wextra -O1 -o target/build/cordon target/resmgr/cordon.c -lsecpol -lslog2
+exit: 0
+
+$ qcc -Wall -Wextra -O1 -o target/build/cordon-supervise target/supervise/cordon-supervise.c -lsecpol -lslog2
+exit: 0
+
+$ qcc -Wall -Wextra -O1 -o target/build/cordon-client target/client/cordon-client.c -lsecpol
+exit: 0
+
+$ qcc -Wall -Wextra -O1 -o target/build/cordon-view target/client/cordon-view.c -lsecpol
+exit: 0
+
+$ secpolcompile -o target/build/secpol.bin target/secpol/cordon.policy
+exit: 0
+
+artifacts:
+  target/build/cordon 9dd9ef028cb7b647cf1bd5d9c3c4fc3888941d6da863176c4aeca350832be72a 19576 bytes
+  target/build/cordon-supervise d55af66b1546d3d4ab66815ae293be3d750ea3b10bfefea5dcd34ff36e9f4bec 14320 bytes
+  target/build/cordon-client abff967dc63a6c896642292a6d783468f4076b96975dc278c4bcb0b7d94dfe77 14064 bytes
+  target/build/cordon-view 4bf745e5202749d9e3c4f0b492f81ba8dd413d3a2fc831584033a5f1c797eba8 13968 bytes
+  target/build/secpol.bin 5618a3e05888bb413f73fc65f5e68db0200541f33826e669dc3f18c52f660731 976 bytes

@@ -1,0 +1,32 @@
+{
+  "recorded": "2026-11-26T09:34:59Z",
+  "sources": {
+    "repo_commit": "8e1711b72d6344be500a54cf6af01853491e1b46"
+  },
+  "images": {
+    "normal": {
+      "ifs.bin": {
+        "sha256": "89415c0b4d7ae073a5c419409ec2ecb5e651d1896ed175b16b461bc20de502f3",
+        "bytes": 11054096
+      },
+      "disk-qemu": {
+        "sha256": "c7ed18b695e6df5a72566b012ab062144c7188bb73f946e6ffa55647d0c50d0a",
+        "bytes": 157250048
+      },
+      "qnx_version": "QNX cordon-g2 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64",
+      "build_record": "evidence/build/mkqnximage-normal.txt"
+    },
+    "violated": {
+      "ifs.bin": {
+        "sha256": "69b7e569856077dbb0b124d0e5b46ff00a1904fa8cdb8f173dde5ea92a286912",
+        "bytes": 11054100
+      },
+      "disk-qemu": {
+        "sha256": "dc47c3fa296fb8a4f4ac3fe7aa8d55cd8a99b05d49cce9ba36f7c300e1d965b2",
+        "bytes": 157250048
+      },
+      "qnx_version": "QNX cordon-g2 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64",
+      "build_record": "evidence/build/mkqnximage-violated.txt"
+    }
+  }
+}

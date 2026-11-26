@@ -1,6 +1,6 @@
 .local/
-build/
-out/
+/build/
+/out/
 __pycache__/
 *.pyc
 target/build/

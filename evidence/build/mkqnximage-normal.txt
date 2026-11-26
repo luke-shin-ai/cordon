@@ -1,0 +1,66 @@
+recorded: 2026-11-26T09:29:33Z
+mode: normal
+sdp: /workspace/qnx-env/qnx800
+
+$ target/boot/build-g2-image.sh normal
+== compile
+== check policy
+== mkqnximage project: /workspace/build/cordon/out/work-normal
+== mkqnximage --build (normal)
+Options changed
+
+To allow root ssh, you need an ssh identity file.  You probably want to use
+an option such as:
+
+    --ssh-ident=~/.ssh/id_ed25519.pub
+
+To just avoid future messages use --ssh-ident=none
+
+Run mkqnximage --help=ssh-ident for more information
+
+Compiling policy
+Generating output/build/mount_fs.sh
+Generating output/build/expandfs.sh
+Generating output/build/post_startup.sh
+Generating output/build/start_net.sh
+Generating output/build/startup.sh
+Generating output/build/passwd
+Generating output/build/group
+Generating output/build/shadow
+Generating output/build/ifs.build
+Generating output/build/system.build
+Generating output/build/data.build
+Generating output/build/qemu_options
+Building disk
+Generating system partition . . .
+Generating data partition . . .
+Generating ifs . . .
+Building boot partition . . .
+Building disk . . .
+Target type: qemu
+Architecture: x86_64
+Security: no
+Repositories:
+    
+    /workspace/qnx-env/qnx800/target/qnx
+
+Options with non-default values:
+
+--policy='/workspace/build/cordon/target/secpol/cordon.policy'
+--proc='procnto-smp-instr'
+
+For full list of options, run "mkqnximage --options"
+--- /workspace/build/cordon/out/g2-normal/build-record.txt
+mode: normal
+built: 2026-11-26T09:30:02Z
+sdp: /workspace/qnx-env/qnx800
+policy: target/secpol/cordon.policy sha256 15fa3002d6cc5a257b1b4b944708bc133d7010c2622e20bef401af68ac603894
+binaries:
+  cordon 9dd9ef028cb7b647cf1bd5d9c3c4fc3888941d6da863176c4aeca350832be72a 19576 bytes
+  cordon-supervise d55af66b1546d3d4ab66815ae293be3d750ea3b10bfefea5dcd34ff36e9f4bec 14320 bytes
+  cordon-client abff967dc63a6c896642292a6d783468f4076b96975dc278c4bcb0b7d94dfe77 14064 bytes
+  cordon-view 4bf745e5202749d9e3c4f0b492f81ba8dd413d3a2fc831584033a5f1c797eba8 13968 bytes
+images:
+  ifs.bin 89415c0b4d7ae073a5c419409ec2ecb5e651d1896ed175b16b461bc20de502f3 11054096 bytes
+  disk-qemu c7ed18b695e6df5a72566b012ab062144c7188bb73f946e6ffa55647d0c50d0a 157250048 bytes
+exit: 0

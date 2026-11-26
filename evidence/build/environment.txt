@@ -1,0 +1,22 @@
+recorded: 2026-11-26T09:34:59Z
+host: Linux 6.12.118-guest-1.1 x86_64
+sdp: /workspace/qnx-env/qnx800
+qnx_target: /workspace/qnx-env/qnx800/target/qnx
+qnx_host: /workspace/qnx-env/qnx800/host/linux/x86_64
+
+$ qcc -V
+cc: targets available in /workspace/qnx-env/qnx800/host/linux/x86_64/etc/qcc:
+	12.2.0,gcc_ntox86_64	(default)
+	12.2.0,gcc_ntox86_64_cxx
+	12.2.0,gcc_ntox86_64_gpp
+	12.2.0,gcc_ntoaarch64le_gpp
+	12.2.0,gcc_ntoaarch64le_cxx
+	12.2.0,gcc_ntoaarch64le
+
+$ mkqnximage --help (first line of the usage block)
+/workspace/qnx-env/qnx800/host/linux/x86_64/../../common/mkqnximage/opt_scripts/opt_sshd_pregen: line 73: which: command not found
+
+
+
+$ qemu-system-x86_64 --version
+tools/record-evidence.sh: line 56: qemu-system-x86_64: command not found
